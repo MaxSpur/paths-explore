@@ -1,4 +1,6 @@
 import { createFileImporter } from "./io/fileImport";
+import { createTrackPersistence } from "./io/persistence";
+import { serializeTrack } from "./io/serializers";
 import { MapView } from "./map/mapView";
 import { TrackStore } from "./model/store";
 import type { EditInteractionMode, ImportSummary } from "./model/types";
@@ -7,6 +9,18 @@ import { SidebarView } from "./ui/sidebar";
 
 interface RenderOptions {
   fitToVisible?: boolean;
+}
+
+function downloadTrackFile(fileName: string, mimeType: string, content: string): void {
+  const blob = new Blob([content], { type: mimeType });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(objectUrl);
 }
 
 export function createApp(root: HTMLElement): void {
@@ -23,6 +37,7 @@ export function createApp(root: HTMLElement): void {
   const mapElement = root.querySelector("#map") as HTMLElement;
 
   const store = new TrackStore();
+  const persistence = createTrackPersistence();
   let latestSummary: ImportSummary | undefined;
   let editMode: EditInteractionMode = "move";
   let sidebar: SidebarView;
@@ -84,6 +99,15 @@ export function createApp(root: HTMLElement): void {
     onFocusTrack: (trackId) => {
       mapView.focusTrack(trackId, store.getState().tracks);
     },
+    onExportTrack: (trackId) => {
+      const track = store.getState().tracks.find((candidate) => candidate.id === trackId);
+      if (!track) {
+        return;
+      }
+
+      const serialized = serializeTrack(track);
+      downloadTrackFile(serialized.fileName, serialized.mimeType, serialized.content);
+    },
     onDeleteTrack: (trackId) => {
       store.removeTrack(trackId);
       render({ fitToVisible: true });
@@ -112,6 +136,30 @@ export function createApp(root: HTMLElement): void {
       render();
     }
   });
+
+  let previousTracks = store.getState().tracks;
+  store.subscribe((state) => {
+    if (state.tracks === previousTracks) {
+      return;
+    }
+
+    previousTracks = state.tracks;
+    void persistence.saveTracks(state.tracks);
+  });
+
+  void (async () => {
+    const tracks = await persistence.loadTracks();
+    if (tracks.length === 0) {
+      return;
+    }
+
+    store.hydrateTracks(tracks);
+    latestSummary = {
+      importedTrackCount: tracks.length,
+      issues: []
+    };
+    render({ fitToVisible: true });
+  })();
 
   render();
 }

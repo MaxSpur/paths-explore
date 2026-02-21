@@ -5,6 +5,7 @@ interface SidebarCallbacks {
   onToggleVisibility: (trackId: string, visible: boolean) => void;
   onTogglePoints: (trackId: string, show: boolean) => void;
   onFocusTrack: (trackId: string) => void;
+  onExportTrack: (trackId: string) => void;
   onDeleteTrack: (trackId: string) => void;
   onToggleEdit: (trackId: string) => void;
   onEditModeChange: (mode: EditInteractionMode) => void;
@@ -160,6 +161,7 @@ export class SidebarView {
               </div>
               <div class="track-actions">
                 <button data-action="focus" data-track-id="${track.id}" type="button">Focus</button>
+                <button data-action="export" data-track-id="${track.id}" type="button">Export</button>
                 <button data-action="edit" data-track-id="${track.id}" type="button">${
                   isEditing ? "Stop Edit" : "Start Edit"
                 }</button>
@@ -260,6 +262,11 @@ export class SidebarView {
 
       if (action === "focus") {
         this.callbacks.onFocusTrack(trackId);
+        return;
+      }
+
+      if (action === "export") {
+        this.callbacks.onExportTrack(trackId);
         return;
       }
 

@@ -54,6 +54,24 @@ export class TrackStore {
     this.emit();
   }
 
+  hydrateTracks(tracks: Track[]): void {
+    const normalized = tracks.map((track, idx) => ({
+      ...track,
+      id: track.id || makeId("track"),
+      color: track.color || getTrackColor(idx),
+      visible: track.visible ?? true,
+      showPoints: track.showPoints ?? false,
+      points: ensurePointIds(track.points)
+    }));
+
+    this.state = {
+      tracks: normalized,
+      selectedPointIds: []
+    };
+
+    this.emit();
+  }
+
   removeTrack(trackId: string): void {
     this.state = {
       ...this.state,

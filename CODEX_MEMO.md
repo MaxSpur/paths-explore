@@ -4,16 +4,20 @@
 Build a Vite + Vanilla TypeScript web app for map-based GPX/KML/GeoJSON track loading, visualization, and basic point editing, plus GitHub Pages deployment workflow.
 
 ## CURRENT_SUBTASK
-Add lasso selection as a third edit mode.
+Finalize GitHub Pages workflow so CI builds/deploys and `dist` stays untracked.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
 - Git repository was initialized during session.
 - Target runtime is Vite dev server (`npm run dev`) and static GitHub Pages deployment.
+- Pages deploy is handled by `.github/workflows/deploy.yml` on push to `master` or `main` plus manual dispatch.
+- `dist/` is git-ignored and should not be committed; Actions artifact upload publishes built output.
 - Baseline scaffold created: `package.json`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`, `index.html`, and source/test folders.
 - App modules:
   - `src/io/parsers.ts` normalizes GPX/KML/GeoJSON into track arrays (LineString/MultiLineString only).
   - `src/io/fileImport.ts` performs multi-file import with partial-failure reporting.
+  - `src/io/persistence.ts` stores/restores tracks in IndexedDB (`path-segments` DB).
+  - `src/io/serializers.ts` exports tracks to GPX/KML/GeoJSON text.
   - `src/map/mapView.ts` renders polylines and point markers, including edit drag behavior.
   - `src/model/store.ts` handles visibility, point toggles, edit/selection state, and point move/delete mutations.
   - `src/ui/sidebar.ts` renders import controls + per-track actions.
@@ -36,6 +40,7 @@ Add lasso selection as a third edit mode.
   - Global `Collapse` and `Expand` controls in tracks header.
   - Per-track collapse toggle by clicking track header row.
   - Collapsed cards show header + color dot only.
+  - Track actions include export in original format family (`gpx`, `kml`, `geojson`/`json`).
 
 ## KEY_DECISIONS
 - Stack: Vite + Vanilla TypeScript.
