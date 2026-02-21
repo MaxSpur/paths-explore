@@ -51,7 +51,7 @@ npm run build
 
 ## GitHub Pages
 
-- Vite production base is set to `/Path-Segments/` in `vite.config.ts`.
+- Vite production base is set to a relative path (`./`) in `vite.config.ts` so asset URLs work after repo renames or custom domain changes.
 - Workflow file: `.github/workflows/deploy.yml`.
 - In repository settings, set Pages source to **GitHub Actions**.
 - Deployment flow: commit/push source files only; GitHub Actions builds and publishes `dist` automatically.

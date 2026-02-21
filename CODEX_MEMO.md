@@ -4,7 +4,7 @@
 Build a Vite + Vanilla TypeScript web app for map-based GPX/KML/GeoJSON track loading, visualization, and basic point editing, plus GitHub Pages deployment workflow.
 
 ## CURRENT_SUBTASK
-Finalize GitHub Pages workflow so CI builds/deploys and `dist` stays untracked.
+Fix Vite base path to survive repo rename/custom-domain path changes.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -12,6 +12,7 @@ Finalize GitHub Pages workflow so CI builds/deploys and `dist` stays untracked.
 - Target runtime is Vite dev server (`npm run dev`) and static GitHub Pages deployment.
 - Pages deploy is handled by `.github/workflows/deploy.yml` on push to `master` or `main` plus manual dispatch.
 - `dist/` is git-ignored and should not be committed; Actions artifact upload publishes built output.
+- Vite build `base` is now `./` (relative assets) instead of hardcoded `/Path-Segments/`.
 - Baseline scaffold created: `package.json`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`, `index.html`, and source/test folders.
 - App modules:
   - `src/io/parsers.ts` normalizes GPX/KML/GeoJSON into track arrays (LineString/MultiLineString only).
