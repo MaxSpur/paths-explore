@@ -4,7 +4,7 @@
 Build a Vite + Vanilla TypeScript web app for map-based GPX/KML/GeoJSON track loading, visualization, and basic point editing, plus GitHub Pages deployment workflow.
 
 ## CURRENT_SUBTASK
-Implement Shift-drag marquee selection for editing mode.
+Add explicit edit mode UI and track card collapse/expand controls.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -28,6 +28,13 @@ Implement Shift-drag marquee selection for editing mode.
   - Delete/Backspace removes all selected points in one operation.
   - Point delete no longer triggers map auto-fit.
   - Leaflet default Shift box-zoom is disabled; custom Shift-drag marquee now selects points in the active editing track.
+  - Edit panel now exposes `move` and `marquee` modes:
+    - `move`: point dragging enabled; Shift-drag marquee still available.
+    - `marquee`: drag on map creates marquee selection; Shift makes it additive.
+- Sidebar track list behavior:
+  - Global `Collapse` and `Expand` controls in tracks header.
+  - Per-track collapse toggle by clicking track header row.
+  - Collapsed cards show header + color dot only.
 
 ## KEY_DECISIONS
 - Stack: Vite + Vanilla TypeScript.

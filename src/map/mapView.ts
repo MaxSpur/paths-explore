@@ -1,9 +1,10 @@
 import L from "leaflet";
-import type { PointCoordinateUpdate, Track } from "../model/types";
+import type { EditInteractionMode, PointCoordinateUpdate, Track } from "../model/types";
 
 interface RenderOptions {
   editingTrackId?: string;
   selectedPointIds?: string[];
+  editMode?: EditInteractionMode;
   fitToVisible?: boolean;
 }
 
@@ -40,6 +41,7 @@ export class MapView {
   private marqueeSelection?: MarqueeSelectionContext;
   private latestTracks: Track[] = [];
   private activeEditingTrackId?: string;
+  private activeEditMode: EditInteractionMode = "move";
   private suppressNextMapClick = false;
 
   constructor(container: HTMLElement, callbacks: MapViewCallbacks) {
@@ -76,6 +78,7 @@ export class MapView {
   renderTracks(tracks: Track[], options: RenderOptions = {}): void {
     this.latestTracks = tracks;
     this.activeEditingTrackId = options.editingTrackId;
+    this.activeEditMode = options.editMode ?? "move";
 
     this.resetDragState();
     this.resetMarqueeSelection();
@@ -129,7 +132,7 @@ export class MapView {
           this.callbacks.onPointSelected?.(track.id, point.id, additive);
         });
 
-        if (track.id === options.editingTrackId) {
+        if (track.id === options.editingTrackId && this.activeEditMode === "move") {
           marker.on("mousedown", (event) => {
             this.startPointDrag(event, {
               trackId: track.id,
@@ -141,6 +144,10 @@ export class MapView {
               movePointIds: selectedInTrack.includes(point.id) ? selectedInTrack : [point.id],
               startPositionsByPointId: new Map()
             });
+          });
+        } else if (track.id === options.editingTrackId) {
+          marker.on("mousedown", (event) => {
+            L.DomEvent.stopPropagation(event);
           });
         }
 
@@ -274,11 +281,19 @@ export class MapView {
   private onMapMouseDown = (event: L.LeafletMouseEvent): void => {
     const originalEvent = event.originalEvent;
 
-    if (!(originalEvent instanceof MouseEvent) || !originalEvent.shiftKey) {
+    if (!(originalEvent instanceof MouseEvent) || originalEvent.button !== 0) {
       return;
     }
 
     if (!this.activeEditingTrackId || this.draggingPoint) {
+      return;
+    }
+
+    const shiftKey = originalEvent.shiftKey;
+    const isMarqueeMode = this.activeEditMode === "marquee";
+    const shouldStartMarquee = isMarqueeMode || shiftKey;
+
+    if (!shouldStartMarquee) {
       return;
     }
 
@@ -300,7 +315,7 @@ export class MapView {
       trackId: this.activeEditingTrackId,
       startLatLng: event.latlng,
       rectangle,
-      additive: true
+      additive: shiftKey
     };
 
     this.map.dragging.disable();

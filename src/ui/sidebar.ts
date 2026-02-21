@@ -1,4 +1,4 @@
-import type { AppState, ImportSummary } from "../model/types";
+import type { AppState, EditInteractionMode, ImportSummary } from "../model/types";
 
 interface SidebarCallbacks {
   onImportFiles: (files: File[] | FileList) => Promise<void>;
@@ -7,6 +7,7 @@ interface SidebarCallbacks {
   onFocusTrack: (trackId: string) => void;
   onDeleteTrack: (trackId: string) => void;
   onToggleEdit: (trackId: string) => void;
+  onEditModeChange: (mode: EditInteractionMode) => void;
 }
 
 export class SidebarView {
@@ -17,6 +18,10 @@ export class SidebarView {
   private trackList: HTMLElement;
   private summaryCount: HTMLElement;
   private summaryStatus: HTMLElement;
+  private collapsedTrackIds = new Set<string>();
+  private lastState: AppState = { tracks: [], selectedPointIds: [] };
+  private lastSummary?: ImportSummary;
+  private lastEditMode: EditInteractionMode = "move";
 
   constructor(root: HTMLElement, callbacks: SidebarCallbacks) {
     this.root = root;
@@ -36,13 +41,34 @@ export class SidebarView {
         </div>
       </section>
 
+      <section class="panel-section panel-edit">
+        <h2>Edit</h2>
+        <div class="edit-mode-list">
+          <label>
+            <input data-action="edit-mode" type="radio" name="edit-mode" value="move" checked />
+            Move points mode
+          </label>
+          <label>
+            <input data-action="edit-mode" type="radio" name="edit-mode" value="marquee" />
+            Marquee selection mode
+          </label>
+        </div>
+        <p class="edit-hint">In marquee mode, drag on map to select. Hold Shift to add to selection.</p>
+      </section>
+
       <section class="panel-section panel-summary">
         <div id="summary-count">Loaded tracks: 0</div>
         <div id="summary-status" class="status-text">No imports yet.</div>
       </section>
 
       <section class="panel-section panel-tracks">
-        <h2>Tracks</h2>
+        <div class="tracks-header-row">
+          <h2>Tracks</h2>
+          <div class="tracks-header-actions">
+            <button data-action="collapse-all" type="button">Collapse</button>
+            <button data-action="expand-all" type="button">Expand</button>
+          </div>
+        </div>
         <div id="track-list" class="track-list"></div>
       </section>
     `;
@@ -54,7 +80,7 @@ export class SidebarView {
     this.summaryStatus = this.root.querySelector("#summary-status") as HTMLElement;
 
     this.bindImportControls();
-    this.bindTrackActions();
+    this.bindPanelActions();
   }
 
   getFileInputElement(): HTMLInputElement {
@@ -65,7 +91,14 @@ export class SidebarView {
     return this.dropZone;
   }
 
-  render(state: AppState, summary?: ImportSummary): void {
+  render(state: AppState, summary: ImportSummary | undefined, editMode: EditInteractionMode): void {
+    this.lastState = state;
+    this.lastSummary = summary;
+    this.lastEditMode = editMode;
+
+    this.pruneCollapsedTrackIds(state);
+    this.syncEditModeControls(editMode);
+
     this.summaryCount.textContent = `Loaded tracks: ${state.tracks.length}`;
 
     if (summary) {
@@ -81,34 +114,53 @@ export class SidebarView {
     this.trackList.innerHTML = state.tracks
       .map((track) => {
         const isEditing = state.editingTrackId === track.id;
+        const isCollapsed = this.collapsedTrackIds.has(track.id);
         const safeTrackName = this.escapeHtml(track.name);
+
         return `
-          <article class="track-item${isEditing ? " is-editing" : ""}" data-track-id="${track.id}">
-            <div class="track-item-header">
-              <span class="track-color" style="background:${track.color}"></span>
-              <h3 title="${safeTrackName}">${safeTrackName}</h3>
-            </div>
-            <div class="track-controls">
-              <label>
-                <input data-action="toggle-visible" data-track-id="${track.id}" type="checkbox" ${
-          track.visible ? "checked" : ""
-        } />
-                visible
-              </label>
-              <label>
-                <input data-action="toggle-points" data-track-id="${track.id}" type="checkbox" ${
-          track.showPoints || isEditing ? "checked" : ""
-        } ${isEditing ? "disabled title=\"Forced on during edit mode\"" : ""} />
-                points
-              </label>
-            </div>
-            <div class="track-actions">
-              <button data-action="focus" data-track-id="${track.id}" type="button">Focus</button>
-              <button data-action="edit" data-track-id="${track.id}" type="button">${
-          isEditing ? "Stop Edit" : "Edit"
-        }</button>
-              <button data-action="delete" data-track-id="${track.id}" type="button">Delete</button>
-            </div>
+          <article class="track-item${isEditing ? " is-editing" : ""}${
+            isCollapsed ? " is-collapsed" : ""
+          }" data-track-id="${track.id}">
+            <button
+              class="track-item-header-button"
+              data-action="toggle-collapse"
+              data-track-id="${track.id}"
+              type="button"
+              aria-expanded="${isCollapsed ? "false" : "true"}"
+            >
+              <span class="track-item-header-main">
+                <span class="track-color" style="background:${track.color}"></span>
+                <span class="track-title" title="${safeTrackName}">${safeTrackName}</span>
+              </span>
+              <span class="track-collapse-indicator">${isCollapsed ? "+" : "-"}</span>
+            </button>
+            ${
+              isCollapsed
+                ? ""
+                : `
+              <div class="track-controls">
+                <label>
+                  <input data-action="toggle-visible" data-track-id="${track.id}" type="checkbox" ${
+                    track.visible ? "checked" : ""
+                  } />
+                  visible
+                </label>
+                <label>
+                  <input data-action="toggle-points" data-track-id="${track.id}" type="checkbox" ${
+                    track.showPoints || isEditing ? "checked" : ""
+                  } ${isEditing ? 'disabled title="Forced on during edit mode"' : ""} />
+                  points
+                </label>
+              </div>
+              <div class="track-actions">
+                <button data-action="focus" data-track-id="${track.id}" type="button">Focus</button>
+                <button data-action="edit" data-track-id="${track.id}" type="button">${
+                  isEditing ? "Stop Edit" : "Start Edit"
+                }</button>
+                <button data-action="delete" data-track-id="${track.id}" type="button">Delete</button>
+              </div>
+            `
+            }
           </article>
         `;
       })
@@ -137,8 +189,8 @@ export class SidebarView {
     });
   }
 
-  private bindTrackActions(): void {
-    this.trackList.addEventListener("change", (event) => {
+  private bindPanelActions(): void {
+    this.root.addEventListener("change", (event) => {
       const target = event.target;
 
       if (!(target instanceof HTMLInputElement)) {
@@ -146,8 +198,13 @@ export class SidebarView {
       }
 
       const action = target.dataset.action;
-      const trackId = target.dataset.trackId;
 
+      if (action === "edit-mode") {
+        this.callbacks.onEditModeChange(target.value as EditInteractionMode);
+        return;
+      }
+
+      const trackId = target.dataset.trackId;
       if (!trackId) {
         return;
       }
@@ -161,31 +218,92 @@ export class SidebarView {
       }
     });
 
-    this.trackList.addEventListener("click", (event) => {
+    this.root.addEventListener("click", (event) => {
       const target = event.target;
 
-      if (!(target instanceof HTMLButtonElement)) {
+      if (!(target instanceof HTMLElement)) {
         return;
       }
 
-      const action = target.dataset.action;
-      const trackId = target.dataset.trackId;
+      const button = target.closest("button[data-action]") as HTMLButtonElement | null;
+      if (!button) {
+        return;
+      }
+
+      const action = button.dataset.action;
+      const trackId = button.dataset.trackId;
+
+      if (action === "collapse-all") {
+        this.collapseAll();
+        return;
+      }
+
+      if (action === "expand-all") {
+        this.expandAll();
+        return;
+      }
 
       if (!trackId) {
         return;
       }
 
+      if (action === "toggle-collapse") {
+        this.toggleTrackCollapse(trackId);
+        return;
+      }
+
       if (action === "focus") {
         this.callbacks.onFocusTrack(trackId);
+        return;
       }
 
       if (action === "delete") {
         this.callbacks.onDeleteTrack(trackId);
+        return;
       }
 
       if (action === "edit") {
         this.callbacks.onToggleEdit(trackId);
       }
+    });
+  }
+
+  private collapseAll(): void {
+    this.collapsedTrackIds = new Set(this.lastState.tracks.map((track) => track.id));
+    this.rerenderFromCache();
+  }
+
+  private expandAll(): void {
+    this.collapsedTrackIds.clear();
+    this.rerenderFromCache();
+  }
+
+  private toggleTrackCollapse(trackId: string): void {
+    if (this.collapsedTrackIds.has(trackId)) {
+      this.collapsedTrackIds.delete(trackId);
+    } else {
+      this.collapsedTrackIds.add(trackId);
+    }
+
+    this.rerenderFromCache();
+  }
+
+  private rerenderFromCache(): void {
+    this.render(this.lastState, this.lastSummary, this.lastEditMode);
+  }
+
+  private pruneCollapsedTrackIds(state: AppState): void {
+    const validIds = new Set(state.tracks.map((track) => track.id));
+    this.collapsedTrackIds = new Set(
+      Array.from(this.collapsedTrackIds).filter((trackId) => validIds.has(trackId))
+    );
+  }
+
+  private syncEditModeControls(editMode: EditInteractionMode): void {
+    const modeInputs = this.root.querySelectorAll<HTMLInputElement>('input[name="edit-mode"]');
+
+    modeInputs.forEach((input) => {
+      input.checked = input.value === editMode;
     });
   }
 
@@ -213,7 +331,7 @@ export class SidebarView {
       "&": "&amp;",
       "<": "&lt;",
       ">": "&gt;",
-      "\"": "&quot;",
+      '"': "&quot;",
       "'": "&#39;"
     };
 

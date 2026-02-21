@@ -1,7 +1,7 @@
 import { createFileImporter } from "./io/fileImport";
 import { MapView } from "./map/mapView";
 import { TrackStore } from "./model/store";
-import type { ImportSummary } from "./model/types";
+import type { EditInteractionMode, ImportSummary } from "./model/types";
 import { bindKeyboardEditor } from "./ui/editor";
 import { SidebarView } from "./ui/sidebar";
 
@@ -24,16 +24,18 @@ export function createApp(root: HTMLElement): void {
 
   const store = new TrackStore();
   let latestSummary: ImportSummary | undefined;
+  let editMode: EditInteractionMode = "move";
   let sidebar: SidebarView;
   let mapView: MapView;
 
   const render = (options: RenderOptions = {}): void => {
     const state = store.getState();
 
-    sidebar.render(state, latestSummary);
+    sidebar.render(state, latestSummary, editMode);
     mapView.renderTracks(state.tracks, {
       editingTrackId: state.editingTrackId,
       selectedPointIds: state.selectedPointIds,
+      editMode,
       fitToVisible: options.fitToVisible
     });
   };
@@ -89,6 +91,10 @@ export function createApp(root: HTMLElement): void {
     onToggleEdit: (trackId) => {
       const currentlyEditing = store.getState().editingTrackId;
       store.setEditingTrack(currentlyEditing === trackId ? undefined : trackId);
+      render();
+    },
+    onEditModeChange: (mode) => {
+      editMode = mode;
       render();
     }
   });

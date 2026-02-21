@@ -9,11 +9,17 @@ Map-first track viewer/editor built with Vite + TypeScript + Leaflet.
 - Multi-track display with deterministic per-track colors.
 - Per-track toggles for path visibility and point visibility.
 - Basic editing for one track at a time:
+  - Select edit interaction mode in the **Edit** panel:
+    - **Move points mode**: drag selected points
+    - **Marquee selection mode**: drag box on map to select points
   - click point to select
   - Shift-click to add/remove points from selection
-  - Shift-drag on map to marquee-select points in the editing track
+  - Shift-drag on map to marquee-select points in the editing track (also works in Move mode)
   - drag point to move
   - `Delete`/`Backspace` to remove selected point(s)
+- Track list supports:
+  - **Collapse** / **Expand** all track cards
+  - clicking a track header to toggle that card between collapsed and expanded
 - Partial import failure handling (valid files still load).
 
 ## Local development
