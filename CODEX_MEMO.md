@@ -4,7 +4,7 @@
 Build a Vite + Vanilla TypeScript web app for map-based GPX/KML/GeoJSON track loading, visualization, and basic point editing, plus GitHub Pages deployment workflow.
 
 ## CURRENT_SUBTASK
-Fix Vite base path to survive repo rename/custom-domain path changes.
+Polish Edit panel UI and add Spacebar temporary pan behavior.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -37,6 +37,7 @@ Fix Vite base path to survive repo rename/custom-domain path changes.
     - `move`: point dragging enabled; Shift-drag marquee still available.
     - `marquee`: drag on map creates marquee selection; Shift makes it additive.
     - `lasso`: freehand selection on map; Shift makes it additive.
+  - Holding Space temporarily switches to pan behavior (left-drag map) in any edit mode.
 - Sidebar track list behavior:
   - Global `Collapse` and `Expand` controls in tracks header.
   - Per-track collapse toggle by clicking track header row.

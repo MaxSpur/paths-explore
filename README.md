@@ -18,6 +18,7 @@ Map-first track viewer/editor built with Vite + TypeScript + Leaflet.
   - Shift-click to add/remove points from selection
   - Shift-drag on map to marquee-select points in the editing track (also works in Move mode)
   - In marquee/lasso mode, hold Shift while dragging to add to existing selection
+  - Hold Space and left-drag to pan the map in any edit mode
   - drag point to move
   - `Delete`/`Backspace` to remove selected point(s)
 - Track list supports:

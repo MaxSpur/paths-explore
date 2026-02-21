@@ -39,6 +39,18 @@ interface LassoSelectionContext {
   additive: boolean;
 }
 
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+
+  return (
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target.isContentEditable
+  );
+}
+
 export class MapView {
   private map: L.Map;
   private layerGroup: L.LayerGroup;
@@ -50,6 +62,7 @@ export class MapView {
   private activeEditingTrackId?: string;
   private activeEditMode: EditInteractionMode = "move";
   private suppressNextMapClick = false;
+  private isSpacePressed = false;
 
   constructor(container: HTMLElement, callbacks: MapViewCallbacks) {
     this.callbacks = callbacks;
@@ -72,10 +85,17 @@ export class MapView {
         return;
       }
 
+      if (this.isSpacePressed) {
+        return;
+      }
+
       this.callbacks.onMapBackgroundClick?.();
     });
 
     this.map.on("mousedown", this.onMapMouseDown);
+    window.addEventListener("keydown", this.onWindowKeyDown);
+    window.addEventListener("keyup", this.onWindowKeyUp);
+    window.addEventListener("blur", this.onWindowBlur);
 
     window.setTimeout(() => {
       this.map.invalidateSize();
@@ -134,6 +154,10 @@ export class MapView {
         indexByPointId.set(point.id, pointIndex);
 
         marker.on("click", (event) => {
+          if (this.isSpacePressed) {
+            return;
+          }
+
           L.DomEvent.stopPropagation(event);
           const originalEvent = event.originalEvent;
           const additive = originalEvent instanceof MouseEvent ? originalEvent.shiftKey : false;
@@ -142,6 +166,10 @@ export class MapView {
 
         if (track.id === options.editingTrackId && this.activeEditMode === "move") {
           marker.on("mousedown", (event) => {
+            if (this.isSpacePressed) {
+              return;
+            }
+
             this.startPointDrag(event, {
               trackId: track.id,
               anchorStartLatLng: marker.getLatLng(),
@@ -154,7 +182,9 @@ export class MapView {
           });
         } else if (track.id === options.editingTrackId) {
           marker.on("mousedown", (event) => {
-            L.DomEvent.stopPropagation(event);
+            if (!this.isSpacePressed) {
+              L.DomEvent.stopPropagation(event);
+            }
           });
         }
 
@@ -292,6 +322,10 @@ export class MapView {
       return;
     }
 
+    if (this.isSpacePressed) {
+      return;
+    }
+
     if (!this.activeEditingTrackId || this.draggingPoint) {
       return;
     }
@@ -309,6 +343,30 @@ export class MapView {
     }
 
     this.startMarqueeSelection(event, shiftKey);
+  };
+
+  private onWindowKeyDown = (event: KeyboardEvent): void => {
+    if (event.code !== "Space" || event.repeat || isTypingTarget(event.target)) {
+      return;
+    }
+
+    this.isSpacePressed = true;
+    this.updateSpacePanClass();
+    event.preventDefault();
+  };
+
+  private onWindowKeyUp = (event: KeyboardEvent): void => {
+    if (event.code !== "Space") {
+      return;
+    }
+
+    this.isSpacePressed = false;
+    this.updateSpacePanClass();
+  };
+
+  private onWindowBlur = (): void => {
+    this.isSpacePressed = false;
+    this.updateSpacePanClass();
   };
 
   private startMarqueeSelection(event: L.LeafletMouseEvent, additive: boolean): void {
@@ -513,5 +571,9 @@ export class MapView {
     this.map.dragging.enable();
     this.map.off("mousemove", this.onDragMove);
     this.map.off("mouseup", this.onDragEnd);
+  }
+
+  private updateSpacePanClass(): void {
+    this.map.getContainer().classList.toggle("is-space-pan", this.isSpacePressed);
   }
 }

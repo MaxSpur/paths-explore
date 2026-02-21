@@ -45,21 +45,24 @@ export class SidebarView {
       <section class="panel-section panel-edit">
         <h2>Edit</h2>
         <div class="edit-mode-list">
-          <label>
+          <label class="edit-mode-card">
             <input data-action="edit-mode" type="radio" name="edit-mode" value="move" checked />
-            Move points mode
+            <span class="edit-mode-title">Move</span>
+            <span class="edit-mode-subtitle">Drag selected points to reposition them.</span>
           </label>
-          <label>
+          <label class="edit-mode-card">
             <input data-action="edit-mode" type="radio" name="edit-mode" value="marquee" />
-            Marquee selection mode
+            <span class="edit-mode-title">Marquee</span>
+            <span class="edit-mode-subtitle">Draw a rectangle to select points.</span>
           </label>
-          <label>
+          <label class="edit-mode-card">
             <input data-action="edit-mode" type="radio" name="edit-mode" value="lasso" />
-            Lasso selection mode
+            <span class="edit-mode-title">Lasso</span>
+            <span class="edit-mode-subtitle">Freehand draw a shape to select points.</span>
           </label>
         </div>
         <p class="edit-hint">
-          Move mode drags points. Marquee/Lasso modes drag to select points. Hold Shift to add to selection.
+          Hold Shift to add to selection. Hold Space to temporarily pan the map in any mode.
         </p>
       </section>
 
@@ -316,7 +319,9 @@ export class SidebarView {
     const modeInputs = this.root.querySelectorAll<HTMLInputElement>('input[name="edit-mode"]');
 
     modeInputs.forEach((input) => {
-      input.checked = input.value === editMode;
+      const isActive = input.value === editMode;
+      input.checked = isActive;
+      input.closest(".edit-mode-card")?.classList.toggle("is-active", isActive);
     });
   }
 
