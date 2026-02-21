@@ -49,7 +49,7 @@ export function createApp(root: HTMLElement): void {
       store.movePoints(trackId, updates);
       render();
     },
-    onMarqueeSelected: (trackId, pointIds, additive) => {
+    onAreaSelected: (trackId, pointIds, additive) => {
       store.selectPoints(trackId, pointIds, additive);
       render();
     },

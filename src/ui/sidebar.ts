@@ -52,8 +52,14 @@ export class SidebarView {
             <input data-action="edit-mode" type="radio" name="edit-mode" value="marquee" />
             Marquee selection mode
           </label>
+          <label>
+            <input data-action="edit-mode" type="radio" name="edit-mode" value="lasso" />
+            Lasso selection mode
+          </label>
         </div>
-        <p class="edit-hint">In marquee mode, drag on map to select. Hold Shift to add to selection.</p>
+        <p class="edit-hint">
+          Move mode drags points. Marquee/Lasso modes drag to select points. Hold Shift to add to selection.
+        </p>
       </section>
 
       <section class="panel-section panel-summary">

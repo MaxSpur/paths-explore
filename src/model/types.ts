@@ -1,5 +1,5 @@
 export type SupportedFormat = "gpx" | "kml" | "geojson";
-export type EditInteractionMode = "move" | "marquee";
+export type EditInteractionMode = "move" | "marquee" | "lasso";
 
 export interface TrackPoint {
   id: string;

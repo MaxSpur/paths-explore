@@ -4,7 +4,7 @@
 Build a Vite + Vanilla TypeScript web app for map-based GPX/KML/GeoJSON track loading, visualization, and basic point editing, plus GitHub Pages deployment workflow.
 
 ## CURRENT_SUBTASK
-Add explicit edit mode UI and track card collapse/expand controls.
+Add lasso selection as a third edit mode.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -28,9 +28,10 @@ Add explicit edit mode UI and track card collapse/expand controls.
   - Delete/Backspace removes all selected points in one operation.
   - Point delete no longer triggers map auto-fit.
   - Leaflet default Shift box-zoom is disabled; custom Shift-drag marquee now selects points in the active editing track.
-  - Edit panel now exposes `move` and `marquee` modes:
+  - Edit panel now exposes `move`, `marquee`, and `lasso` modes:
     - `move`: point dragging enabled; Shift-drag marquee still available.
     - `marquee`: drag on map creates marquee selection; Shift makes it additive.
+    - `lasso`: freehand selection on map; Shift makes it additive.
 - Sidebar track list behavior:
   - Global `Collapse` and `Expand` controls in tracks header.
   - Per-track collapse toggle by clicking track header row.
@@ -44,7 +45,6 @@ Add explicit edit mode UI and track card collapse/expand controls.
 - Editing v1: point move/delete only.
 
 ## OPEN_ITEMS
-- Optional future UX: add polygon lasso multi-select.
 - Verify deployed `base` behavior in real GitHub Pages repo.
 
 ## PRUNE_NOTES

@@ -11,13 +11,12 @@ interface RenderOptions {
 interface MapViewCallbacks {
   onPointSelected?: (trackId: string, pointId: string, additive: boolean) => void;
   onPointsMoved?: (trackId: string, updates: PointCoordinateUpdate[]) => void;
-  onMarqueeSelected?: (trackId: string, pointIds: string[], additive: boolean) => void;
+  onAreaSelected?: (trackId: string, pointIds: string[], additive: boolean) => void;
   onMapBackgroundClick?: () => void;
 }
 
 interface DraggingPointContext {
   trackId: string;
-  anchorPointId: string;
   anchorStartLatLng: L.LatLng;
   polyline: L.Polyline;
   markerByPointId: Map<string, L.CircleMarker>;
@@ -33,12 +32,20 @@ interface MarqueeSelectionContext {
   additive: boolean;
 }
 
+interface LassoSelectionContext {
+  trackId: string;
+  vertices: L.LatLng[];
+  line: L.Polyline;
+  additive: boolean;
+}
+
 export class MapView {
   private map: L.Map;
   private layerGroup: L.LayerGroup;
   private callbacks: MapViewCallbacks;
   private draggingPoint?: DraggingPointContext;
   private marqueeSelection?: MarqueeSelectionContext;
+  private lassoSelection?: LassoSelectionContext;
   private latestTracks: Track[] = [];
   private activeEditingTrackId?: string;
   private activeEditMode: EditInteractionMode = "move";
@@ -82,6 +89,7 @@ export class MapView {
 
     this.resetDragState();
     this.resetMarqueeSelection();
+    this.resetLassoSelection();
     this.layerGroup.clearLayers();
 
     const selectedPointIdSet = new Set(options.selectedPointIds ?? []);
@@ -136,7 +144,6 @@ export class MapView {
           marker.on("mousedown", (event) => {
             this.startPointDrag(event, {
               trackId: track.id,
-              anchorPointId: point.id,
               anchorStartLatLng: marker.getLatLng(),
               polyline,
               markerByPointId,
@@ -290,17 +297,27 @@ export class MapView {
     }
 
     const shiftKey = originalEvent.shiftKey;
-    const isMarqueeMode = this.activeEditMode === "marquee";
-    const shouldStartMarquee = isMarqueeMode || shiftKey;
 
+    if (this.activeEditMode === "lasso") {
+      this.startLassoSelection(event, shiftKey);
+      return;
+    }
+
+    const shouldStartMarquee = this.activeEditMode === "marquee" || shiftKey;
     if (!shouldStartMarquee) {
       return;
     }
 
+    this.startMarqueeSelection(event, shiftKey);
+  };
+
+  private startMarqueeSelection(event: L.LeafletMouseEvent, additive: boolean): void {
+    const originalEvent = event.originalEvent;
     originalEvent.preventDefault();
     L.DomEvent.stopPropagation(originalEvent);
 
     this.resetMarqueeSelection();
+    this.resetLassoSelection();
 
     const rectangle = L.rectangle(L.latLngBounds(event.latlng, event.latlng), {
       color: "#111111",
@@ -312,16 +329,16 @@ export class MapView {
     }).addTo(this.map);
 
     this.marqueeSelection = {
-      trackId: this.activeEditingTrackId,
+      trackId: this.activeEditingTrackId!,
       startLatLng: event.latlng,
       rectangle,
-      additive: shiftKey
+      additive
     };
 
     this.map.dragging.disable();
     this.map.on("mousemove", this.onMarqueeMove);
     this.map.on("mouseup", this.onMarqueeEnd);
-  };
+  }
 
   private onMarqueeMove = (event: L.LeafletMouseEvent): void => {
     if (!this.marqueeSelection) {
@@ -342,10 +359,69 @@ export class MapView {
     const bounds = rectangle.getBounds();
 
     const pointIds = this.getPointIdsInBounds(trackId, bounds);
-    this.callbacks.onMarqueeSelected?.(trackId, pointIds, additive);
+    this.callbacks.onAreaSelected?.(trackId, pointIds, additive);
 
     this.suppressNextMapClick = true;
     this.resetMarqueeSelection();
+  };
+
+  private startLassoSelection(event: L.LeafletMouseEvent, additive: boolean): void {
+    const originalEvent = event.originalEvent;
+    originalEvent.preventDefault();
+    L.DomEvent.stopPropagation(originalEvent);
+
+    this.resetMarqueeSelection();
+    this.resetLassoSelection();
+
+    const line = L.polyline([event.latlng], {
+      color: "#111111",
+      weight: 1.5,
+      dashArray: "4 4",
+      opacity: 0.95,
+      interactive: false
+    }).addTo(this.map);
+
+    this.lassoSelection = {
+      trackId: this.activeEditingTrackId!,
+      vertices: [event.latlng],
+      line,
+      additive
+    };
+
+    this.map.dragging.disable();
+    this.map.on("mousemove", this.onLassoMove);
+    this.map.on("mouseup", this.onLassoEnd);
+  }
+
+  private onLassoMove = (event: L.LeafletMouseEvent): void => {
+    if (!this.lassoSelection) {
+      return;
+    }
+
+    const { vertices } = this.lassoSelection;
+    const lastVertex = vertices[vertices.length - 1];
+
+    if (this.map.distance(lastVertex, event.latlng) < 2) {
+      return;
+    }
+
+    vertices.push(event.latlng);
+    this.lassoSelection.line.setLatLngs([...vertices, vertices[0]]);
+  };
+
+  private onLassoEnd = (): void => {
+    if (!this.lassoSelection) {
+      return;
+    }
+
+    const { trackId, vertices, additive } = this.lassoSelection;
+
+    const pointIds =
+      vertices.length >= 3 ? this.getPointIdsInPolygon(trackId, vertices) : [];
+
+    this.callbacks.onAreaSelected?.(trackId, pointIds, additive);
+    this.suppressNextMapClick = true;
+    this.resetLassoSelection();
   };
 
   private getPointIdsInBounds(trackId: string, bounds: L.LatLngBounds): string[] {
@@ -358,6 +434,44 @@ export class MapView {
     return track.points
       .filter((point) => bounds.contains([point.lat, point.lng]))
       .map((point) => point.id);
+  }
+
+  private getPointIdsInPolygon(trackId: string, vertices: L.LatLng[]): string[] {
+    const track = this.latestTracks.find((candidate) => candidate.id === trackId);
+
+    if (!track || vertices.length < 3) {
+      return [];
+    }
+
+    return track.points
+      .filter((point) => this.isPointInsidePolygon(point.lat, point.lng, vertices))
+      .map((point) => point.id);
+  }
+
+  private isPointInsidePolygon(lat: number, lng: number, polygon: L.LatLng[]): boolean {
+    let inside = false;
+
+    for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+      const xi = polygon[i].lng;
+      const yi = polygon[i].lat;
+      const xj = polygon[j].lng;
+      const yj = polygon[j].lat;
+
+      const crossesLatitude = yi > lat !== yj > lat;
+      if (!crossesLatitude) {
+        continue;
+      }
+
+      const slope = (xj - xi) * (lat - yi);
+      const divisor = yj - yi;
+      const xAtLat = slope / (divisor === 0 ? Number.EPSILON : divisor) + xi;
+
+      if (lng < xAtLat) {
+        inside = !inside;
+      }
+    }
+
+    return inside;
   }
 
   private resetMarqueeSelection(): void {
@@ -373,6 +487,21 @@ export class MapView {
     this.map.dragging.enable();
     this.map.off("mousemove", this.onMarqueeMove);
     this.map.off("mouseup", this.onMarqueeEnd);
+  }
+
+  private resetLassoSelection(): void {
+    if (!this.lassoSelection) {
+      return;
+    }
+
+    if (this.map.hasLayer(this.lassoSelection.line)) {
+      this.map.removeLayer(this.lassoSelection.line);
+    }
+
+    this.lassoSelection = undefined;
+    this.map.dragging.enable();
+    this.map.off("mousemove", this.onLassoMove);
+    this.map.off("mouseup", this.onLassoEnd);
   }
 
   private resetDragState(): void {
