@@ -1,11 +1,24 @@
 import L from "leaflet";
-import type { EditInteractionMode, PointCoordinateUpdate, Track } from "../model/types";
+import { getColormapById, sampleColormapColor } from "../colormaps";
+import {
+  computeTrackSegmentVelocities,
+  computeVelocityScaleInfo,
+  normalizeVelocity,
+  type VelocityScaleInfo
+} from "./velocity";
+import type {
+  EditInteractionMode,
+  PointCoordinateUpdate,
+  Track,
+  VelocityViewSettings
+} from "../model/types";
 
 interface RenderOptions {
   editingTrackId?: string;
   selectedPointIds?: string[];
   editMode?: EditInteractionMode;
   fitToVisible?: boolean;
+  velocitySettings?: VelocityViewSettings;
 }
 
 interface MapViewCallbacks {
@@ -39,6 +52,11 @@ interface LassoSelectionContext {
   additive: boolean;
 }
 
+interface LegendColormap {
+  name: string;
+  colors: { r: number; g: number; b: number }[];
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -54,6 +72,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export class MapView {
   private map: L.Map;
   private layerGroup: L.LayerGroup;
+  private velocityLegendElement?: HTMLDivElement;
   private callbacks: MapViewCallbacks;
   private draggingPoint?: DraggingPointContext;
   private marqueeSelection?: MarqueeSelectionContext;
@@ -78,6 +97,15 @@ export class MapView {
     }).addTo(this.map);
 
     this.layerGroup = L.layerGroup().addTo(this.map);
+    const velocityLegendControl = L.control({ position: "bottomright" });
+    velocityLegendControl.onAdd = () => {
+      const legend = L.DomUtil.create("div", "velocity-legend is-hidden") as HTMLDivElement;
+      L.DomEvent.disableClickPropagation(legend);
+      L.DomEvent.disableScrollPropagation(legend);
+      this.velocityLegendElement = legend;
+      return legend;
+    };
+    velocityLegendControl.addTo(this.map);
 
     this.map.on("click", () => {
       if (this.suppressNextMapClick) {
@@ -113,6 +141,12 @@ export class MapView {
     this.layerGroup.clearLayers();
 
     const selectedPointIdSet = new Set(options.selectedPointIds ?? []);
+    const velocitySettings = options.velocitySettings;
+    const renderVelocity = velocitySettings?.enabled ?? false;
+    const colormap = velocitySettings ? getColormapById(velocitySettings.colormapId) : undefined;
+    const velocityScaleInfo =
+      renderVelocity && velocitySettings ? computeVelocityScaleInfo(tracks, velocitySettings) : undefined;
+    this.updateVelocityLegend(renderVelocity, velocitySettings, colormap, velocityScaleInfo);
 
     for (const track of tracks) {
       if (!track.visible || track.points.length === 0) {
@@ -120,11 +154,13 @@ export class MapView {
       }
 
       const lineCoords: L.LatLngExpression[] = track.points.map((point) => [point.lat, point.lng]);
-      const polyline = L.polyline(lineCoords, {
-        color: track.color,
-        weight: 4,
-        opacity: 0.95
-      });
+      const polyline = renderVelocity
+        ? this.renderVelocityTrackPolyline(track, lineCoords, colormap?.colors ?? [], velocityScaleInfo)
+        : L.polyline(lineCoords, {
+            color: track.color,
+            weight: 4,
+            opacity: 0.95
+          });
 
       this.layerGroup.addLayer(polyline);
 
@@ -221,6 +257,118 @@ export class MapView {
 
     const bounds = L.latLngBounds(allPoints);
     this.map.fitBounds(bounds.pad(0.15));
+  }
+
+  private renderVelocityTrackPolyline(
+    track: Track,
+    lineCoords: L.LatLngExpression[],
+    colormapColors: { r: number; g: number; b: number }[],
+    velocityScaleInfo?: VelocityScaleInfo
+  ): L.Polyline {
+    const hiddenPolyline = L.polyline(lineCoords, {
+      color: "#000000",
+      weight: 0,
+      opacity: 0,
+      interactive: false
+    });
+
+    const timedSegmentsByStart = new Map(
+      computeTrackSegmentVelocities(track).map((segment) => [segment.startIndex, segment.metersPerSecond])
+    );
+
+    for (let idx = 0; idx < track.points.length - 1; idx += 1) {
+      const start = track.points[idx];
+      const end = track.points[idx + 1];
+      const timedVelocity = timedSegmentsByStart.get(idx);
+
+      const hasVelocity =
+        timedVelocity !== undefined &&
+        velocityScaleInfo !== undefined &&
+        velocityScaleInfo.maxMetersPerSecond > 0;
+
+      const normalizedVelocity =
+        hasVelocity && timedVelocity !== undefined && velocityScaleInfo
+          ? normalizeVelocity(timedVelocity, velocityScaleInfo)
+          : 0;
+
+      const segmentColor =
+        colormapColors.length > 0
+          ? sampleColormapColor(colormapColors, normalizedVelocity)
+          : hasVelocity
+            ? track.color
+            : "#1a4f9a";
+
+      const segment = L.polyline(
+        [
+          [start.lat, start.lng],
+          [end.lat, end.lng]
+        ],
+        {
+          color: segmentColor,
+          weight: 5,
+          opacity: 1,
+          interactive: false,
+          lineCap: "round",
+          lineJoin: "round"
+        }
+      );
+
+      this.layerGroup.addLayer(segment);
+    }
+
+    return hiddenPolyline;
+  }
+
+  private updateVelocityLegend(
+    enabled: boolean,
+    settings: VelocityViewSettings | undefined,
+    colormap: LegendColormap | undefined,
+    velocityScaleInfo: VelocityScaleInfo | undefined
+  ): void {
+    if (!this.velocityLegendElement) {
+      return;
+    }
+
+    if (!enabled || !settings || !colormap) {
+      this.velocityLegendElement.classList.add("is-hidden");
+      this.velocityLegendElement.innerHTML = "";
+      return;
+    }
+
+    const maxKmh = velocityScaleInfo ? Math.max(0, velocityScaleInfo.maxKmh) : 0;
+    const gradient = this.buildLegendGradient(colormap.colors);
+    const scaleLabel =
+      settings.scaleMode === "fixed"
+        ? `Fixed scale (max ${Math.max(1, Math.round(settings.fixedMaxKmh))} km/h)`
+        : "Auto scale (across loaded tracks)";
+    const availability =
+      maxKmh <= 0 ? "No timed segments available." : `Current max: ${Math.round(maxKmh * 10) / 10} km/h`;
+
+    this.velocityLegendElement.classList.remove("is-hidden");
+    this.velocityLegendElement.innerHTML = `
+      <div class="velocity-legend-title">Velocity</div>
+      <div class="velocity-legend-bar" style="--legend-gradient: ${gradient};"></div>
+      <div class="velocity-legend-scale"><span>0 km/h</span><span>${Math.round(maxKmh * 10) / 10} km/h</span></div>
+      <div class="velocity-legend-note">${scaleLabel}</div>
+      <div class="velocity-legend-note">${availability}</div>
+    `;
+  }
+
+  private buildLegendGradient(colors: { r: number; g: number; b: number }[]): string {
+    if (colors.length === 0) {
+      return "linear-gradient(90deg, rgb(27, 79, 154), rgb(245, 210, 50))";
+    }
+
+    const stopCount = Math.min(24, colors.length);
+    const stops: string[] = [];
+
+    for (let index = 0; index < stopCount; index += 1) {
+      const t = stopCount === 1 ? 0 : index / (stopCount - 1);
+      const color = sampleColormapColor(colors, t);
+      stops.push(`${color} ${Math.round(t * 1000) / 10}%`);
+    }
+
+    return `linear-gradient(90deg, ${stops.join(", ")})`;
   }
 
   private startPointDrag(event: L.LeafletMouseEvent, context: DraggingPointContext): void {

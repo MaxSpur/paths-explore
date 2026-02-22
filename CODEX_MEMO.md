@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Build a Vite + Vanilla TypeScript web app for map-based GPX/KML/GeoJSON track loading, visualization, and basic point editing, plus GitHub Pages deployment workflow.
+Extend the path viewer/editor with velocity-based segment visualization using imported perceptual colormaps.
 
 ## CURRENT_SUBTASK
-Stabilize Codex UI push by setting explicit local git push defaults.
+Refine velocity view UX: add on-map legend and remove underlying track-color stroke in velocity mode.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -26,6 +26,8 @@ Stabilize Codex UI push by setting explicit local git push defaults.
   - `src/io/persistence.ts` stores/restores tracks in IndexedDB (`path-segments` DB).
   - `src/io/serializers.ts` exports tracks to GPX/KML/GeoJSON text.
   - `src/map/mapView.ts` renders polylines and point markers, including edit drag behavior.
+  - `src/map/velocity.ts` computes segment velocities from point timestamps and supports auto/fixed scaling.
+  - `src/colormaps/index.ts` loads CSV colormaps (currently CET-L08) and samples colors by normalized value.
   - `src/model/store.ts` handles visibility, point toggles, edit/selection state, and point move/delete mutations.
   - `src/ui/sidebar.ts` renders import controls + per-track actions.
   - `src/ui/editor.ts` wires Delete/Backspace/Escape keyboard editing controls.
@@ -49,6 +51,12 @@ Stabilize Codex UI push by setting explicit local git push defaults.
   - Per-track collapse toggle by clicking track header row.
   - Collapsed cards show header + color dot only.
   - Track actions include export in original format family (`gpx`, `kml`, `geojson`/`json`).
+- Velocity visualization behavior:
+  - New sidebar Velocity section toggles segment coloring by speed.
+  - Scale modes: `auto` (max from all loaded tracks) and `fixed` (user-entered max km/h).
+  - Segment velocity uses consecutive point distance and timestamp delta; segments without valid timing render at colormap minimum.
+  - Colormap selection plumbing exists via CSV-backed registry (currently `cet-l08` only).
+  - Map now shows an on-map velocity legend (gradient, min/max labels, scale mode note).
 
 ## KEY_DECISIONS
 - Stack: Vite + Vanilla TypeScript.
@@ -58,7 +66,7 @@ Stabilize Codex UI push by setting explicit local git push defaults.
 - Editing v1: point move/delete only.
 
 ## OPEN_ITEMS
-- Verify deployed `base` behavior in real GitHub Pages repo.
+- Add additional colormap CSV options to the velocity colormap selector.
 
 ## GIT_UI_PUSH_SETUP
 - Goal: make Codex UI `Push` work via plain `git push` without manual remote args.

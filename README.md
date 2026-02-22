@@ -9,6 +9,11 @@ Map-first track viewer/editor built with Vite + TypeScript + Leaflet.
 - Imported/edited tracks persist across reloads via IndexedDB.
 - Multi-track display with deterministic per-track colors.
 - Per-track toggles for path visibility and point visibility.
+- Optional velocity visualization:
+  - Color each segment between consecutive points by computed speed
+  - Uses CET-L08 perceptual colormap (blue -> magenta -> yellow)
+  - Auto-normalized against all loaded tracks, or fixed max speed mode
+  - Requires timestamps on points (`time`) to compute segment velocities
 - Basic editing for one track at a time:
   - Select edit interaction mode in the **Edit** panel:
     - **Move points mode**: drag selected points

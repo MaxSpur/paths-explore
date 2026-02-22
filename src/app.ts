@@ -2,8 +2,10 @@ import { createFileImporter } from "./io/fileImport";
 import { createTrackPersistence } from "./io/persistence";
 import { serializeTrack } from "./io/serializers";
 import { MapView } from "./map/mapView";
+import { computeVelocityScaleInfo } from "./map/velocity";
+import { DEFAULT_COLORMAP_ID } from "./colormaps";
 import { TrackStore } from "./model/store";
-import type { EditInteractionMode, ImportSummary } from "./model/types";
+import type { EditInteractionMode, ImportSummary, VelocityViewSettings } from "./model/types";
 import { bindKeyboardEditor } from "./ui/editor";
 import { SidebarView } from "./ui/sidebar";
 
@@ -40,17 +42,25 @@ export function createApp(root: HTMLElement): void {
   const persistence = createTrackPersistence();
   let latestSummary: ImportSummary | undefined;
   let editMode: EditInteractionMode = "move";
+  let velocitySettings: VelocityViewSettings = {
+    enabled: false,
+    scaleMode: "auto",
+    fixedMaxKmh: 60,
+    colormapId: DEFAULT_COLORMAP_ID
+  };
   let sidebar: SidebarView;
   let mapView: MapView;
 
   const render = (options: RenderOptions = {}): void => {
     const state = store.getState();
+    const velocityScaleInfo = computeVelocityScaleInfo(state.tracks, velocitySettings);
 
-    sidebar.render(state, latestSummary, editMode);
+    sidebar.render(state, latestSummary, editMode, velocitySettings, velocityScaleInfo.maxKmh);
     mapView.renderTracks(state.tracks, {
       editingTrackId: state.editingTrackId,
       selectedPointIds: state.selectedPointIds,
       editMode,
+      velocitySettings,
       fitToVisible: options.fitToVisible
     });
   };
@@ -119,6 +129,38 @@ export function createApp(root: HTMLElement): void {
     },
     onEditModeChange: (mode) => {
       editMode = mode;
+      render();
+    },
+    onVelocityEnabledChange: (enabled) => {
+      velocitySettings = {
+        ...velocitySettings,
+        enabled
+      };
+      render();
+    },
+    onVelocityScaleModeChange: (mode) => {
+      velocitySettings = {
+        ...velocitySettings,
+        scaleMode: mode
+      };
+      render();
+    },
+    onVelocityFixedMaxChange: (maxKmh) => {
+      if (!Number.isFinite(maxKmh)) {
+        return;
+      }
+
+      velocitySettings = {
+        ...velocitySettings,
+        fixedMaxKmh: Math.max(1, maxKmh)
+      };
+      render();
+    },
+    onVelocityColormapChange: (colormapId) => {
+      velocitySettings = {
+        ...velocitySettings,
+        colormapId
+      };
       render();
     }
   });

@@ -1,4 +1,10 @@
-import type { AppState, EditInteractionMode, ImportSummary } from "../model/types";
+import type {
+  AppState,
+  EditInteractionMode,
+  ImportSummary,
+  VelocityScaleMode,
+  VelocityViewSettings
+} from "../model/types";
 
 interface SidebarCallbacks {
   onImportFiles: (files: File[] | FileList) => Promise<void>;
@@ -9,6 +15,10 @@ interface SidebarCallbacks {
   onDeleteTrack: (trackId: string) => void;
   onToggleEdit: (trackId: string) => void;
   onEditModeChange: (mode: EditInteractionMode) => void;
+  onVelocityEnabledChange: (enabled: boolean) => void;
+  onVelocityScaleModeChange: (mode: VelocityScaleMode) => void;
+  onVelocityFixedMaxChange: (maxKmh: number) => void;
+  onVelocityColormapChange: (colormapId: string) => void;
 }
 
 export class SidebarView {
@@ -23,6 +33,13 @@ export class SidebarView {
   private lastState: AppState = { tracks: [], selectedPointIds: [] };
   private lastSummary?: ImportSummary;
   private lastEditMode: EditInteractionMode = "move";
+  private lastVelocitySettings: VelocityViewSettings = {
+    enabled: false,
+    scaleMode: "auto",
+    fixedMaxKmh: 60,
+    colormapId: "cet-l08"
+  };
+  private lastVelocityMaxKmh = 0;
 
   constructor(root: HTMLElement, callbacks: SidebarCallbacks) {
     this.root = root;
@@ -66,6 +83,34 @@ export class SidebarView {
         </p>
       </section>
 
+      <section class="panel-section panel-velocity">
+        <h2>Velocity</h2>
+        <label class="velocity-toggle">
+          <input data-action="velocity-enabled" type="checkbox" />
+          Color segments by velocity
+        </label>
+        <div class="velocity-controls">
+          <label class="velocity-field">
+            <span>Scale</span>
+            <select data-action="velocity-scale-mode">
+              <option value="auto">Auto (all loaded tracks)</option>
+              <option value="fixed">Fixed max velocity</option>
+            </select>
+          </label>
+          <label class="velocity-field">
+            <span>Max (km/h)</span>
+            <input data-action="velocity-max" type="number" min="1" step="1" value="60" />
+          </label>
+          <label class="velocity-field">
+            <span>Colormap</span>
+            <select data-action="velocity-colormap">
+              <option value="cet-l08">CET-L08 (Blue-Magenta-Yellow)</option>
+            </select>
+          </label>
+        </div>
+        <p class="velocity-meta" id="velocity-meta">Auto max: - km/h.</p>
+      </section>
+
       <section class="panel-section panel-summary">
         <div id="summary-count">Loaded tracks: 0</div>
         <div id="summary-status" class="status-text">No imports yet.</div>
@@ -101,13 +146,22 @@ export class SidebarView {
     return this.dropZone;
   }
 
-  render(state: AppState, summary: ImportSummary | undefined, editMode: EditInteractionMode): void {
+  render(
+    state: AppState,
+    summary: ImportSummary | undefined,
+    editMode: EditInteractionMode,
+    velocitySettings: VelocityViewSettings,
+    velocityMaxKmh: number
+  ): void {
     this.lastState = state;
     this.lastSummary = summary;
     this.lastEditMode = editMode;
+    this.lastVelocitySettings = velocitySettings;
+    this.lastVelocityMaxKmh = velocityMaxKmh;
 
     this.pruneCollapsedTrackIds(state);
     this.syncEditModeControls(editMode);
+    this.syncVelocityControls(velocitySettings, velocityMaxKmh);
 
     this.summaryCount.textContent = `Loaded tracks: ${state.tracks.length}`;
 
@@ -204,14 +258,39 @@ export class SidebarView {
     this.root.addEventListener("change", (event) => {
       const target = event.target;
 
-      if (!(target instanceof HTMLInputElement)) {
+      if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) {
         return;
       }
 
       const action = target.dataset.action;
 
+      if (target instanceof HTMLSelectElement) {
+        if (action === "velocity-scale-mode") {
+          this.callbacks.onVelocityScaleModeChange(target.value as VelocityScaleMode);
+        }
+
+        if (action === "velocity-colormap") {
+          this.callbacks.onVelocityColormapChange(target.value);
+        }
+
+        return;
+      }
+
       if (action === "edit-mode") {
         this.callbacks.onEditModeChange(target.value as EditInteractionMode);
+        return;
+      }
+
+      if (action === "velocity-enabled") {
+        this.callbacks.onVelocityEnabledChange(target.checked);
+        return;
+      }
+
+      if (action === "velocity-max") {
+        const nextMax = Number.parseFloat(target.value);
+        if (Number.isFinite(nextMax)) {
+          this.callbacks.onVelocityFixedMaxChange(nextMax);
+        }
         return;
       }
 
@@ -305,7 +384,13 @@ export class SidebarView {
   }
 
   private rerenderFromCache(): void {
-    this.render(this.lastState, this.lastSummary, this.lastEditMode);
+    this.render(
+      this.lastState,
+      this.lastSummary,
+      this.lastEditMode,
+      this.lastVelocitySettings,
+      this.lastVelocityMaxKmh
+    );
   }
 
   private pruneCollapsedTrackIds(state: AppState): void {
@@ -323,6 +408,52 @@ export class SidebarView {
       input.checked = isActive;
       input.closest(".edit-mode-card")?.classList.toggle("is-active", isActive);
     });
+  }
+
+  private syncVelocityControls(
+    velocitySettings: VelocityViewSettings,
+    velocityMaxKmh: number
+  ): void {
+    const enabledInput = this.root.querySelector<HTMLInputElement>('input[data-action="velocity-enabled"]');
+    if (enabledInput) {
+      enabledInput.checked = velocitySettings.enabled;
+    }
+
+    const scaleModeSelect = this.root.querySelector<HTMLSelectElement>('select[data-action="velocity-scale-mode"]');
+    if (scaleModeSelect) {
+      scaleModeSelect.value = velocitySettings.scaleMode;
+      scaleModeSelect.disabled = !velocitySettings.enabled;
+    }
+
+    const maxInput = this.root.querySelector<HTMLInputElement>('input[data-action="velocity-max"]');
+    if (maxInput) {
+      maxInput.value = Number.isFinite(velocitySettings.fixedMaxKmh)
+        ? String(Math.max(1, Math.round(velocitySettings.fixedMaxKmh)))
+        : "1";
+      maxInput.disabled = !velocitySettings.enabled || velocitySettings.scaleMode !== "fixed";
+    }
+
+    const colormapSelect = this.root.querySelector<HTMLSelectElement>('select[data-action="velocity-colormap"]');
+    if (colormapSelect) {
+      colormapSelect.value = velocitySettings.colormapId;
+      colormapSelect.disabled = !velocitySettings.enabled;
+    }
+
+    const velocityMeta = this.root.querySelector<HTMLElement>("#velocity-meta");
+    if (!velocityMeta) {
+      return;
+    }
+
+    if (!velocitySettings.enabled) {
+      velocityMeta.textContent = "Velocity coloring is off.";
+      return;
+    }
+
+    const roundedMax = Number.isFinite(velocityMaxKmh) ? Math.round(velocityMaxKmh * 10) / 10 : 0;
+    velocityMeta.textContent =
+      velocitySettings.scaleMode === "fixed"
+        ? `Fixed max: ${Math.max(1, Math.round(velocitySettings.fixedMaxKmh))} km/h.`
+        : `Auto max: ${roundedMax} km/h across loaded tracks.`;
   }
 
   private buildSummaryMessage(summary: ImportSummary): string {

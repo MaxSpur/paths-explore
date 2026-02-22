@@ -1,5 +1,13 @@
 export type SupportedFormat = "gpx" | "kml" | "geojson";
 export type EditInteractionMode = "move" | "marquee" | "lasso";
+export type VelocityScaleMode = "auto" | "fixed";
+
+export interface VelocityViewSettings {
+  enabled: boolean;
+  scaleMode: VelocityScaleMode;
+  fixedMaxKmh: number;
+  colormapId: string;
+}
 
 export interface TrackPoint {
   id: string;
