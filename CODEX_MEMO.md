@@ -4,7 +4,7 @@
 Build a Vite + Vanilla TypeScript web app for map-based GPX/KML/GeoJSON track loading, visualization, and basic point editing, plus GitHub Pages deployment workflow.
 
 ## CURRENT_SUBTASK
-Polish Edit panel UI and add Spacebar temporary pan behavior.
+Stabilize Codex UI push by setting explicit local git push defaults.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -13,6 +13,12 @@ Polish Edit panel UI and add Spacebar temporary pan behavior.
 - Pages deploy is handled by `.github/workflows/deploy.yml` on push to `master` or `main` plus manual dispatch.
 - `dist/` is git-ignored and should not be committed; Actions artifact upload publishes built output.
 - Vite build `base` is now `./` (relative assets) instead of hardcoded `/Path-Segments/`.
+- Local git push config explicitly set:
+  - `branch.master.remote=origin`
+  - `branch.master.merge=refs/heads/master`
+  - `branch.master.pushRemote=origin`
+  - `remote.pushDefault=origin`
+  - `push.default=upstream`
 - Baseline scaffold created: `package.json`, `tsconfig.json`, `vite.config.ts`, `vitest.config.ts`, `index.html`, and source/test folders.
 - App modules:
   - `src/io/parsers.ts` normalizes GPX/KML/GeoJSON into track arrays (LineString/MultiLineString only).
@@ -53,6 +59,22 @@ Polish Edit panel UI and add Spacebar temporary pan behavior.
 
 ## OPEN_ITEMS
 - Verify deployed `base` behavior in real GitHub Pages repo.
+
+## GIT_UI_PUSH_SETUP
+- Goal: make Codex UI `Push` work via plain `git push` without manual remote args.
+- One-time machine setup:
+  - Use SSH for GitHub remotes by default:
+    - `git config --global url."git@github.com:".insteadOf "https://github.com/"`
+  - Ensure SSH auth works:
+    - `ssh -T git@github.com` (should print successful auth message)
+  - Optional reliability defaults:
+    - `git config --global push.default upstream`
+    - `git config --global remote.pushDefault origin`
+- Per-new-repo minimum:
+  - Ensure remote is SSH: `git remote -v` should show `git@github.com:...`
+  - After first commit, set upstream once:
+    - `git push -u origin $(git branch --show-current)`
+  - After upstream exists, Codex UI push should work with plain `git push`.
 
 ## PRUNE_NOTES
 - Initial memo created with only durable project-level decisions.
