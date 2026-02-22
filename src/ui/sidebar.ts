@@ -66,20 +66,29 @@ export class SidebarView {
       <section class="panel-section panel-edit">
         <h2>Edit</h2>
         <div class="edit-mode-list">
-          <label class="edit-mode-card">
+          <label
+            class="edit-mode-card"
+            title="Move mode: drag selected points to reposition them."
+            aria-label="Move mode: drag selected points to reposition them."
+          >
             <input data-action="edit-mode" type="radio" name="edit-mode" value="move" checked />
             <span class="edit-mode-title">Move</span>
-            <span class="edit-mode-subtitle">Drag selected points to reposition them.</span>
           </label>
-          <label class="edit-mode-card">
+          <label
+            class="edit-mode-card"
+            title="Marquee mode: drag a rectangle to select points."
+            aria-label="Marquee mode: drag a rectangle to select points."
+          >
             <input data-action="edit-mode" type="radio" name="edit-mode" value="marquee" />
             <span class="edit-mode-title">Marquee</span>
-            <span class="edit-mode-subtitle">Draw a rectangle to select points.</span>
           </label>
-          <label class="edit-mode-card">
+          <label
+            class="edit-mode-card"
+            title="Lasso mode: freehand draw a shape to select points."
+            aria-label="Lasso mode: freehand draw a shape to select points."
+          >
             <input data-action="edit-mode" type="radio" name="edit-mode" value="lasso" />
             <span class="edit-mode-title">Lasso</span>
-            <span class="edit-mode-subtitle">Freehand draw a shape to select points.</span>
           </label>
         </div>
         <p class="edit-hint">
@@ -103,7 +112,26 @@ export class SidebarView {
           </label>
           <label class="velocity-field">
             <span>Max (km/h)</span>
-            <input data-action="velocity-max" type="number" min="1" step="1" value="60" />
+            <div class="velocity-max-row">
+              <input
+                class="velocity-max-input"
+                data-action="velocity-max"
+                type="number"
+                min="0"
+                max="350"
+                step="1"
+                value="60"
+              />
+              <input
+                class="velocity-max-slider"
+                data-action="velocity-max-slider"
+                type="range"
+                min="0"
+                max="350"
+                step="1"
+                value="60"
+              />
+            </div>
           </label>
           <label class="velocity-field">
             <span>Colormap</span>
@@ -298,6 +326,14 @@ export class SidebarView {
         return;
       }
 
+      if (action === "velocity-max-slider") {
+        const nextMax = Number.parseFloat(target.value);
+        if (Number.isFinite(nextMax)) {
+          this.callbacks.onVelocityFixedMaxChange(nextMax);
+        }
+        return;
+      }
+
       const trackId = target.dataset.trackId;
       if (!trackId) {
         return;
@@ -365,6 +401,26 @@ export class SidebarView {
         this.callbacks.onToggleEdit(trackId);
       }
     });
+
+    this.root.addEventListener("input", (event) => {
+      const target = event.target;
+
+      if (!(target instanceof HTMLInputElement)) {
+        return;
+      }
+
+      const action = target.dataset.action;
+      if (action !== "velocity-max" && action !== "velocity-max-slider") {
+        return;
+      }
+
+      const nextMax = Number.parseFloat(target.value);
+      if (!Number.isFinite(nextMax)) {
+        return;
+      }
+
+      this.callbacks.onVelocityFixedMaxChange(nextMax);
+    });
   }
 
   private collapseAll(): void {
@@ -430,11 +486,18 @@ export class SidebarView {
     }
 
     const maxInput = this.root.querySelector<HTMLInputElement>('input[data-action="velocity-max"]');
+    const maxSlider = this.root.querySelector<HTMLInputElement>('input[data-action="velocity-max-slider"]');
+    const roundedMax = Number.isFinite(velocitySettings.fixedMaxKmh)
+      ? Math.max(0, Math.min(350, Math.round(velocitySettings.fixedMaxKmh)))
+      : 0;
+
     if (maxInput) {
-      maxInput.value = Number.isFinite(velocitySettings.fixedMaxKmh)
-        ? String(Math.max(1, Math.round(velocitySettings.fixedMaxKmh)))
-        : "1";
+      maxInput.value = String(roundedMax);
       maxInput.disabled = !velocitySettings.enabled || velocitySettings.scaleMode !== "fixed";
+    }
+    if (maxSlider) {
+      maxSlider.value = String(roundedMax);
+      maxSlider.disabled = !velocitySettings.enabled || velocitySettings.scaleMode !== "fixed";
     }
 
     const colormapSelect = this.root.querySelector<HTMLSelectElement>('select[data-action="velocity-colormap"]');
@@ -458,11 +521,11 @@ export class SidebarView {
       return;
     }
 
-    const roundedMax = Number.isFinite(velocityMaxKmh) ? Math.round(velocityMaxKmh * 10) / 10 : 0;
+    const roundedAutoMax = Number.isFinite(velocityMaxKmh) ? Math.round(velocityMaxKmh * 10) / 10 : 0;
     velocityMeta.textContent =
       velocitySettings.scaleMode === "fixed"
-        ? `Fixed max: ${Math.max(1, Math.round(velocitySettings.fixedMaxKmh))} km/h.`
-        : `Auto max: ${roundedMax} km/h across loaded tracks.`;
+        ? `Fixed max: ${roundedMax} km/h.`
+        : `Auto max: ${roundedAutoMax} km/h across loaded tracks.`;
   }
 
   private buildSummaryMessage(summary: ImportSummary): string {

@@ -95,17 +95,19 @@ input {
 
 .edit-mode-list {
   display: grid;
-  gap: 0.5rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
   margin-top: 0.55rem;
 }
 
 .edit-mode-card {
   position: relative;
   display: grid;
-  gap: 0.2rem;
+  place-items: center;
   border: 1px solid var(--border);
   border-radius: 0.6rem;
-  padding: 0.55rem 0.6rem;
+  min-height: 2.35rem;
+  padding: 0.38rem 0.45rem;
   cursor: pointer;
   background: #ffffff;
   transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
@@ -118,8 +120,10 @@ input {
 }
 
 .edit-mode-title {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
 }
 
 .edit-mode-subtitle {
@@ -177,6 +181,31 @@ input {
 .velocity-field select:disabled {
   background: #f3f7f4;
   color: #7f8f87;
+}
+
+.velocity-max-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.velocity-max-input {
+  text-align: right;
+}
+
+.velocity-field .velocity-max-slider {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  accent-color: var(--accent);
+}
+
+.velocity-field .velocity-max-slider:disabled {
+  opacity: 0.55;
 }
 
 .velocity-meta {

@@ -152,7 +152,7 @@ export function createApp(root: HTMLElement): void {
 
       velocitySettings = {
         ...velocitySettings,
-        fixedMaxKmh: Math.max(1, maxKmh)
+        fixedMaxKmh: Math.max(0, Math.min(350, maxKmh))
       };
       render();
     },

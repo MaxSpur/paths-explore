@@ -339,7 +339,7 @@ export class MapView {
     const gradient = this.buildLegendGradient(colormap.colors);
     const scaleLabel =
       settings.scaleMode === "fixed"
-        ? `Fixed scale (max ${Math.max(1, Math.round(settings.fixedMaxKmh))} km/h)`
+        ? `Fixed scale (max ${Math.max(0, Math.round(settings.fixedMaxKmh))} km/h)`
         : "Auto scale (across loaded tracks)";
     const availability =
       maxKmh <= 0 ? "No timed segments available." : `Current max: ${Math.round(maxKmh * 10) / 10} km/h`;

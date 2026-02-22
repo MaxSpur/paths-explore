@@ -4,7 +4,7 @@
 Extend the path viewer/editor with velocity-based segment visualization using imported perceptual colormaps.
 
 ## CURRENT_SUBTASK
-Enable automatic CSV colormap discovery from `src/colormaps/` and expose all options in UI.
+Complete sidebar UX compaction and linked velocity max controls.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -58,6 +58,9 @@ Enable automatic CSV colormap discovery from `src/colormaps/` and expose all opt
   - Colormap selection is CSV-backed and loaded from discovered files.
   - Map now shows an on-map velocity legend (gradient, min/max labels, scale mode note).
   - Colormaps are now auto-discovered from `src/colormaps/*.csv` at build/dev time and listed automatically in the Velocity selector.
+  - Fixed max control now supports 0..350 km/h and uses synchronized number + range slider inputs.
+- Sidebar editing UX:
+  - Edit modes are compact single-row pills (`Move`, `Marquee`, `Lasso`) with descriptions moved into hover tooltips.
 
 ## KEY_DECISIONS
 - Stack: Vite + Vanilla TypeScript.

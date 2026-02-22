@@ -109,10 +109,9 @@ export function computeVelocityScaleInfo(
   settings: VelocityViewSettings
 ): VelocityScaleInfo {
   const autoMaxMps = getAutoMaxVelocityMetersPerSecond(tracks);
-  const fixedMaxMps = kmhToMetersPerSecond(settings.fixedMaxKmh);
+  const fixedMaxMps = kmhToMetersPerSecond(Math.max(0, settings.fixedMaxKmh));
 
-  const maxMetersPerSecond =
-    settings.scaleMode === "fixed" && fixedMaxMps > 0 ? fixedMaxMps : autoMaxMps;
+  const maxMetersPerSecond = settings.scaleMode === "fixed" ? fixedMaxMps : autoMaxMps;
 
   return {
     maxMetersPerSecond,
