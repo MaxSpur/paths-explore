@@ -26,7 +26,6 @@ export class SidebarView {
   private root: HTMLElement;
   private callbacks: SidebarCallbacks;
   private fileInput: HTMLInputElement;
-  private dropZone: HTMLElement;
   private trackList: HTMLElement;
   private summaryCount: HTMLElement;
   private summaryStatus: HTMLElement;
@@ -58,9 +57,7 @@ export class SidebarView {
       <section class="panel-section">
         <label class="import-label" for="track-file-input">Import files</label>
         <input id="track-file-input" class="file-input" type="file" multiple accept=".gpx,.kml,.geojson,.json" />
-        <div id="drop-zone" class="drop-zone" tabindex="0" role="button">
-          Drag and drop files here
-        </div>
+        <p class="import-hint">Tip: drag and drop files anywhere on the page.</p>
       </section>
 
       <section class="panel-section panel-edit">
@@ -161,7 +158,6 @@ export class SidebarView {
     `;
 
     this.fileInput = this.root.querySelector("#track-file-input") as HTMLInputElement;
-    this.dropZone = this.root.querySelector("#drop-zone") as HTMLElement;
     this.trackList = this.root.querySelector("#track-list") as HTMLElement;
     this.summaryCount = this.root.querySelector("#summary-count") as HTMLElement;
     this.summaryStatus = this.root.querySelector("#summary-status") as HTMLElement;
@@ -172,10 +168,6 @@ export class SidebarView {
 
   getFileInputElement(): HTMLInputElement {
     return this.fileInput;
-  }
-
-  getDropZoneElement(): HTMLElement {
-    return this.dropZone;
   }
 
   render(
@@ -272,17 +264,6 @@ export class SidebarView {
 
       await this.callbacks.onImportFiles(this.fileInput.files);
       this.fileInput.value = "";
-    });
-
-    this.dropZone.addEventListener("click", () => {
-      this.fileInput.click();
-    });
-
-    this.dropZone.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        this.fileInput.click();
-      }
     });
   }
 

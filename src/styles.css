@@ -77,6 +77,12 @@ input {
   width: 100%;
 }
 
+.import-hint {
+  margin: 0.42rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .drop-zone {
   margin-top: 0.5rem;
   padding: 0.9rem;
@@ -102,12 +108,13 @@ input {
 
 .edit-mode-card {
   position: relative;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid var(--border);
   border-radius: 0.6rem;
-  min-height: 2.35rem;
-  padding: 0.38rem 0.45rem;
+  height: 2.35rem;
+  padding: 0.38rem 0.55rem;
   cursor: pointer;
   background: #ffffff;
   transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
@@ -120,9 +127,13 @@ input {
 }
 
 .edit-mode-title {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
   font-size: 0.85rem;
   font-weight: 600;
-  line-height: 1.1;
+  line-height: 1;
   text-align: center;
 }
 

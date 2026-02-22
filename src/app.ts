@@ -165,7 +165,7 @@ export function createApp(root: HTMLElement): void {
     }
   });
 
-  importer.bindDropZone(sidebar.getDropZoneElement());
+  importer.bindDropZone(document.body);
 
   bindKeyboardEditor({
     getState: () => store.getState(),

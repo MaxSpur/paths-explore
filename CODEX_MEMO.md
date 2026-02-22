@@ -4,7 +4,7 @@
 Extend the path viewer/editor with velocity-based segment visualization using imported perceptual colormaps.
 
 ## CURRENT_SUBTASK
-Complete sidebar UX compaction and linked velocity max controls.
+Enable full-page drag/drop importing and tighten visual centering of compact edit mode buttons.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -61,6 +61,9 @@ Complete sidebar UX compaction and linked velocity max controls.
   - Fixed max control now supports 0..350 km/h and uses synchronized number + range slider inputs.
 - Sidebar editing UX:
   - Edit modes are compact single-row pills (`Move`, `Marquee`, `Lasso`) with descriptions moved into hover tooltips.
+- Import UX:
+  - Dedicated drop box removed; users can now drag and drop files anywhere on the page.
+  - Import section uses a compact hint line instead of a large drop target block.
 
 ## KEY_DECISIONS
 - Stack: Vite + Vanilla TypeScript.
