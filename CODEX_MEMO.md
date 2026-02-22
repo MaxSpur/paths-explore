@@ -4,7 +4,7 @@
 Extend the path viewer/editor with velocity-based segment visualization using imported perceptual colormaps.
 
 ## CURRENT_SUBTASK
-Refine velocity view UX: add on-map legend and remove underlying track-color stroke in velocity mode.
+Enable automatic CSV colormap discovery from `src/colormaps/` and expose all options in UI.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -55,8 +55,9 @@ Refine velocity view UX: add on-map legend and remove underlying track-color str
   - New sidebar Velocity section toggles segment coloring by speed.
   - Scale modes: `auto` (max from all loaded tracks) and `fixed` (user-entered max km/h).
   - Segment velocity uses consecutive point distance and timestamp delta; segments without valid timing render at colormap minimum.
-  - Colormap selection plumbing exists via CSV-backed registry (currently `cet-l08` only).
+  - Colormap selection is CSV-backed and loaded from discovered files.
   - Map now shows an on-map velocity legend (gradient, min/max labels, scale mode note).
+  - Colormaps are now auto-discovered from `src/colormaps/*.csv` at build/dev time and listed automatically in the Velocity selector.
 
 ## KEY_DECISIONS
 - Stack: Vite + Vanilla TypeScript.
@@ -66,7 +67,7 @@ Refine velocity view UX: add on-map legend and remove underlying track-color str
 - Editing v1: point move/delete only.
 
 ## OPEN_ITEMS
-- Add additional colormap CSV options to the velocity colormap selector.
+- Optional: support custom display names/metadata per colormap instead of filename-derived labels.
 
 ## GIT_UI_PUSH_SETUP
 - Goal: make Codex UI `Push` work via plain `git push` without manual remote args.

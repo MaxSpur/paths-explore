@@ -12,6 +12,7 @@ Map-first track viewer/editor built with Vite + TypeScript + Leaflet.
 - Optional velocity visualization:
   - Color each segment between consecutive points by computed speed
   - Uses CET-L08 perceptual colormap (blue -> magenta -> yellow)
+  - Any `.csv` colormap placed in `src/colormaps/` is auto-discovered and appears in the colormap selector
   - Auto-normalized against all loaded tracks, or fixed max speed mode
   - Requires timestamps on points (`time`) to compute segment velocities
 - Basic editing for one track at a time:

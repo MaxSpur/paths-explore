@@ -1,5 +1,3 @@
-import cetL08Csv from "./cet-l08.csv?raw";
-
 export interface RgbColor {
   r: number;
   g: number;
@@ -81,23 +79,61 @@ function loadColormapColors(csv: string): RgbColor[] {
   try {
     return parseColormapCsv(csv);
   } catch {
-    // Fallback keeps the app usable if a colormap asset is malformed.
-    return [
-      { r: 0.05, g: 0.1, b: 0.45 },
-      { r: 0.95, g: 0.9, b: 0.1 }
-    ];
+    return [];
   }
 }
 
-export const COLORMAPS: readonly ColormapDefinition[] = [
-  {
-    id: "cet-l08",
-    name: "CET-L08 (Blue-Magenta-Yellow)",
-    colors: loadColormapColors(cetL08Csv)
-  }
-];
+function pathToBaseName(path: string): string {
+  const match = path.match(/\/([^/]+)\.csv$/i);
+  return match?.[1] ?? path;
+}
 
-export const DEFAULT_COLORMAP_ID = "cet-l08";
+function baseNameToLabel(baseName: string): string {
+  return baseName
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+const csvModules = import.meta.glob("./*.csv", {
+  query: "?raw",
+  import: "default",
+  eager: true
+}) as Record<string, string>;
+
+const discoveredColormaps = Object.entries(csvModules)
+  .map(([path, csv]) => {
+    const baseName = pathToBaseName(path);
+    const colors = loadColormapColors(csv);
+
+    if (colors.length < 2) {
+      return null;
+    }
+
+    return {
+      id: baseName.toLowerCase(),
+      name: baseNameToLabel(baseName),
+      colors
+    } satisfies ColormapDefinition;
+  })
+  .filter((definition): definition is ColormapDefinition => definition !== null)
+  .sort((left, right) => left.name.localeCompare(right.name));
+
+const fallbackColormap: ColormapDefinition = {
+  id: "fallback",
+  name: "Fallback",
+  colors: [
+    { r: 0.05, g: 0.1, b: 0.45 },
+    { r: 0.95, g: 0.9, b: 0.1 }
+  ]
+};
+
+export const COLORMAPS: readonly ColormapDefinition[] =
+  discoveredColormaps.length > 0 ? discoveredColormaps : [fallbackColormap];
+
+export const DEFAULT_COLORMAP_ID =
+  COLORMAPS.find((map) => map.id === "cet-l08")?.id ?? COLORMAPS[0].id;
 
 export function getColormapById(id: string): ColormapDefinition {
   return COLORMAPS.find((map) => map.id === id) ?? COLORMAPS[0];

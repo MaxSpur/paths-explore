@@ -5,6 +5,7 @@ import type {
   VelocityScaleMode,
   VelocityViewSettings
 } from "../model/types";
+import { COLORMAPS, DEFAULT_COLORMAP_ID } from "../colormaps";
 
 interface SidebarCallbacks {
   onImportFiles: (files: File[] | FileList) => Promise<void>;
@@ -37,13 +38,16 @@ export class SidebarView {
     enabled: false,
     scaleMode: "auto",
     fixedMaxKmh: 60,
-    colormapId: "cet-l08"
+    colormapId: DEFAULT_COLORMAP_ID
   };
   private lastVelocityMaxKmh = 0;
 
   constructor(root: HTMLElement, callbacks: SidebarCallbacks) {
     this.root = root;
     this.callbacks = callbacks;
+    const colormapOptions = COLORMAPS.map(
+      (colormap) => `<option value="${colormap.id}">${this.escapeHtml(colormap.name)}</option>`
+    ).join("");
 
     this.root.innerHTML = `
       <header class="panel-header">
@@ -104,7 +108,7 @@ export class SidebarView {
           <label class="velocity-field">
             <span>Colormap</span>
             <select data-action="velocity-colormap">
-              <option value="cet-l08">CET-L08 (Blue-Magenta-Yellow)</option>
+              ${colormapOptions}
             </select>
           </label>
         </div>
@@ -435,7 +439,12 @@ export class SidebarView {
 
     const colormapSelect = this.root.querySelector<HTMLSelectElement>('select[data-action="velocity-colormap"]');
     if (colormapSelect) {
-      colormapSelect.value = velocitySettings.colormapId;
+      const optionExists = Array.from(colormapSelect.options).some(
+        (option) => option.value === velocitySettings.colormapId
+      );
+      colormapSelect.value = optionExists
+        ? velocitySettings.colormapId
+        : colormapSelect.options[0]?.value ?? "";
       colormapSelect.disabled = !velocitySettings.enabled;
     }
 
