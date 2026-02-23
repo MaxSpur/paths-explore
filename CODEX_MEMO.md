@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Refine sidebar section structure and reduce redundant import/status information.
+Revise velocity controls and add acceleration-based segment coloring.
 
 ## CURRENT_SUBTASK
-Merge `Import` + `Status` into one compact section while preserving section collapse/reorder persistence.
+Replace velocity checkbox/dropdown UI with pill controls and wire acceleration rendering + legends.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -52,11 +52,13 @@ Merge `Import` + `Status` into one compact section while preserving section coll
   - Collapsed cards show header + color dot only.
   - Track actions include export in original format family (`gpx`, `kml`, `geojson`/`json`).
 - Velocity visualization behavior:
-  - New sidebar Velocity section toggles segment coloring by speed.
-  - Scale modes: `auto` (max from all loaded tracks) and `fixed` (user-entered max km/h).
+  - Sidebar now uses pill controls: `Off` / `Velocity` / `Acceleration` (replacing the old checkbox toggle).
+  - Scale mode now uses pill controls: `Auto` / `Fixed` (replacing the old dropdown).
+  - Scale modes: `auto` (max from visible loaded tracks) and `fixed` (user-entered max in current metric unit).
   - Segment velocity uses consecutive point distance and timestamp delta; segments without valid timing render at colormap minimum.
+  - Acceleration mode colors segments by absolute acceleration magnitude (`m/s²`) from consecutive timed segment velocities.
   - Colormap selection is CSV-backed and loaded from discovered files.
-  - Map now shows an on-map velocity legend (gradient, min/max labels, scale mode note).
+  - Map legend now adapts to active metric (`Velocity` or `Acceleration`) including units.
   - Colormaps are now auto-discovered from `src/colormaps/*.csv` at build/dev time and listed automatically in the Velocity selector.
   - Fixed max control now supports 0..350 km/h and uses synchronized number + range slider inputs.
 - Sidebar editing UX:

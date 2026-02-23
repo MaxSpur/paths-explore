@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseColormapCsv, sampleColormapColor } from "../src/colormaps";
 import {
+  computeTrackSegmentAccelerations,
   computeTrackSegmentVelocities,
   computeVelocityScaleInfo,
   normalizeVelocity
@@ -51,24 +52,54 @@ describe("velocity tools", () => {
 
     const autoSettings: VelocityViewSettings = {
       enabled: true,
+      metric: "velocity",
       scaleMode: "auto",
-      fixedMaxKmh: 10,
+      fixedMax: 10,
       colormapId: "cet-l08"
     };
 
     const fixedSettings: VelocityViewSettings = {
       ...autoSettings,
       scaleMode: "fixed",
-      fixedMaxKmh: 36
+      fixedMax: 36
     };
 
     const autoScale = computeVelocityScaleInfo(tracks, autoSettings);
     const fixedScale = computeVelocityScaleInfo(tracks, fixedSettings);
 
-    expect(autoScale.maxMetersPerSecond).toBeGreaterThan(11);
-    expect(autoScale.maxMetersPerSecond).toBeLessThan(11.2);
-    expect(fixedScale.maxMetersPerSecond).toBeCloseTo(10, 6);
+    expect(autoScale.maxBaseValue).toBeGreaterThan(11);
+    expect(autoScale.maxBaseValue).toBeLessThan(11.2);
+    expect(autoScale.unitLabel).toBe("km/h");
+    expect(fixedScale.maxBaseValue).toBeCloseTo(10, 6);
     expect(normalizeVelocity(5, fixedScale)).toBeCloseTo(0.5, 6);
+  });
+
+  it("computes acceleration scale from consecutive timed segments", () => {
+    const track = buildTimedTrack("accel", [
+      { id: "a", lat: 0, lng: 0, time: "2026-01-01T00:00:00.000Z" },
+      { id: "b", lat: 0, lng: 0.001, time: "2026-01-01T00:00:10.000Z" },
+      { id: "c", lat: 0, lng: 0.003, time: "2026-01-01T00:00:20.000Z" }
+    ]);
+
+    const accelerations = computeTrackSegmentAccelerations(track);
+    expect(accelerations).toHaveLength(1);
+    expect(accelerations[0].startIndex).toBe(1);
+    expect(accelerations[0].metersPerSecondSquared).toBeGreaterThan(1.1);
+    expect(accelerations[0].metersPerSecondSquared).toBeLessThan(1.2);
+
+    const settings: VelocityViewSettings = {
+      enabled: true,
+      metric: "acceleration",
+      scaleMode: "auto",
+      fixedMax: 20,
+      colormapId: "cet-l08"
+    };
+
+    const scale = computeVelocityScaleInfo([track], settings);
+    expect(scale.metric).toBe("acceleration");
+    expect(scale.unitLabel).toBe("m/s²");
+    expect(scale.maxBaseValue).toBeGreaterThan(1.1);
+    expect(scale.maxBaseValue).toBeLessThan(1.2);
   });
 
   it("parses csv colormap rows and samples rgb output", () => {

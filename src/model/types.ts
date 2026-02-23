@@ -1,11 +1,13 @@
 export type SupportedFormat = "gpx" | "kml" | "geojson";
 export type EditInteractionMode = "move" | "marquee" | "lasso";
 export type VelocityScaleMode = "auto" | "fixed";
+export type SegmentColorMetric = "velocity" | "acceleration";
 
 export interface VelocityViewSettings {
   enabled: boolean;
+  metric: SegmentColorMetric;
   scaleMode: VelocityScaleMode;
-  fixedMaxKmh: number;
+  fixedMax: number;
   colormapId: string;
 }
 

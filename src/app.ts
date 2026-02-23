@@ -44,8 +44,9 @@ export function createApp(root: HTMLElement): void {
   let editMode: EditInteractionMode = "move";
   let velocitySettings: VelocityViewSettings = {
     enabled: false,
+    metric: "velocity",
     scaleMode: "auto",
-    fixedMaxKmh: 60,
+    fixedMax: 60,
     colormapId: DEFAULT_COLORMAP_ID
   };
   let sidebar: SidebarView;
@@ -59,7 +60,7 @@ export function createApp(root: HTMLElement): void {
         : state.tracks;
     const velocityScaleInfo = computeVelocityScaleInfo(velocityScaleTracks, velocitySettings);
 
-    sidebar.render(state, latestSummary, editMode, velocitySettings, velocityScaleInfo.maxKmh);
+    sidebar.render(state, latestSummary, editMode, velocitySettings, velocityScaleInfo.maxDisplayValue);
     mapView.renderTracks(state.tracks, {
       editingTrackId: state.editingTrackId,
       selectedPointIds: state.selectedPointIds,
@@ -147,10 +148,20 @@ export function createApp(root: HTMLElement): void {
       editMode = mode;
       render();
     },
-    onVelocityEnabledChange: (enabled) => {
+    onVelocityModeChange: (mode) => {
+      if (mode === "off") {
+        velocitySettings = {
+          ...velocitySettings,
+          enabled: false
+        };
+        render();
+        return;
+      }
+
       velocitySettings = {
         ...velocitySettings,
-        enabled
+        enabled: true,
+        metric: mode
       };
       render();
     },
@@ -161,14 +172,14 @@ export function createApp(root: HTMLElement): void {
       };
       render();
     },
-    onVelocityFixedMaxChange: (maxKmh) => {
-      if (!Number.isFinite(maxKmh)) {
+    onVelocityFixedMaxChange: (maxValue) => {
+      if (!Number.isFinite(maxValue)) {
         return;
       }
 
       velocitySettings = {
         ...velocitySettings,
-        fixedMaxKmh: Math.max(0, Math.min(350, maxKmh))
+        fixedMax: Math.max(0, Math.min(350, maxValue))
       };
       render();
     },

@@ -223,11 +223,50 @@ input {
   gap: 0.5rem;
 }
 
-.velocity-toggle {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  font-size: 0.9rem;
+.segmented-control {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.velocity-mode-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.velocity-scale-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.segmented-btn {
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.26rem 0.45rem;
+  min-height: 1.9rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.segmented-btn.is-active {
+  border-color: color-mix(in srgb, var(--accent), #1b3a31 25%);
+  background: #e8f7f1;
+  color: #0f3128;
+}
+
+.segmented-btn.is-inactive {
+  color: #475a52;
+}
+
+.segmented-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.segmented-btn:disabled {
+  opacity: 0.68;
+  cursor: not-allowed;
 }
 
 .velocity-controls {

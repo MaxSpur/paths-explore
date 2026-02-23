@@ -1,14 +1,16 @@
 import L from "leaflet";
 import { getColormapById, sampleColormapColor } from "../colormaps";
 import {
+  computeTrackSegmentAccelerations,
   computeTrackSegmentVelocities,
   computeVelocityScaleInfo,
   normalizeVelocity,
-  type VelocityScaleInfo
+  type SegmentColorScaleInfo
 } from "./velocity";
 import type {
   EditInteractionMode,
   PointCoordinateUpdate,
+  SegmentColorMetric,
   Track,
   VelocityViewSettings
 } from "../model/types";
@@ -177,7 +179,13 @@ export class MapView {
       const showSegments = track.showSegments ?? true;
       const polyline = showSegments
         ? renderVelocity
-          ? this.renderVelocityTrackPolyline(track, lineCoords, colormap?.colors ?? [], velocityScaleInfo)
+          ? this.renderVelocityTrackPolyline(
+              track,
+              lineCoords,
+              velocitySettings?.metric ?? "velocity",
+              colormap?.colors ?? [],
+              velocityScaleInfo
+            )
           : L.polyline(lineCoords, {
               color: track.color,
               weight: 4,
@@ -304,8 +312,9 @@ export class MapView {
   private renderVelocityTrackPolyline(
     track: Track,
     lineCoords: L.LatLngExpression[],
+    metric: SegmentColorMetric,
     colormapColors: { r: number; g: number; b: number }[],
-    velocityScaleInfo?: VelocityScaleInfo
+    velocityScaleInfo?: SegmentColorScaleInfo
   ): L.Polyline {
     const hiddenPolyline = L.polyline(lineCoords, {
       color: "#000000",
@@ -314,9 +323,20 @@ export class MapView {
       interactive: false
     });
 
-    const timedSegmentsByStart = new Map(
-      computeTrackSegmentVelocities(track).map((segment) => [segment.startIndex, segment.metersPerSecond])
-    );
+    const timedSegmentsByStart =
+      metric === "acceleration"
+        ? new Map(
+            computeTrackSegmentAccelerations(track).map((segment) => [
+              segment.startIndex,
+              segment.metersPerSecondSquared
+            ])
+          )
+        : new Map(
+            computeTrackSegmentVelocities(track).map((segment) => [
+              segment.startIndex,
+              segment.metersPerSecond
+            ])
+          );
 
     for (let idx = 0; idx < track.points.length - 1; idx += 1) {
       const start = track.points[idx];
@@ -326,7 +346,7 @@ export class MapView {
       const hasVelocity =
         timedVelocity !== undefined &&
         velocityScaleInfo !== undefined &&
-        velocityScaleInfo.maxMetersPerSecond > 0;
+        velocityScaleInfo.maxBaseValue > 0;
 
       const normalizedVelocity =
         hasVelocity && timedVelocity !== undefined && velocityScaleInfo
@@ -365,7 +385,7 @@ export class MapView {
     enabled: boolean,
     settings: VelocityViewSettings | undefined,
     colormap: LegendColormap | undefined,
-    velocityScaleInfo: VelocityScaleInfo | undefined
+    velocityScaleInfo: SegmentColorScaleInfo | undefined
   ): void {
     if (!this.velocityLegendElement) {
       return;
@@ -377,20 +397,26 @@ export class MapView {
       return;
     }
 
-    const maxKmh = velocityScaleInfo ? Math.max(0, velocityScaleInfo.maxKmh) : 0;
+    const maxDisplayValue = velocityScaleInfo ? Math.max(0, velocityScaleInfo.maxDisplayValue) : 0;
+    const unitLabel = velocityScaleInfo?.unitLabel ?? "";
+    const metricLabel = velocityScaleInfo?.metricLabel ?? "Velocity";
     const gradient = this.buildLegendGradient(colormap.colors);
     const scaleLabel =
       settings.scaleMode === "fixed"
-        ? `Fixed scale (max ${Math.max(0, Math.round(settings.fixedMaxKmh))} km/h)`
-        : "Auto scale (across loaded tracks)";
+        ? `Fixed scale (max ${Math.max(0, Math.round(settings.fixedMax * 10) / 10)} ${unitLabel})`
+        : "Auto scale (across visible tracks)";
     const availability =
-      maxKmh <= 0 ? "No timed segments available." : `Current max: ${Math.round(maxKmh * 10) / 10} km/h`;
+      maxDisplayValue <= 0
+        ? "No timed segments available."
+        : `Current max: ${Math.round(maxDisplayValue * 10) / 10} ${unitLabel}`;
 
     this.velocityLegendElement.classList.remove("is-hidden");
     this.velocityLegendElement.innerHTML = `
-      <div class="velocity-legend-title">Velocity</div>
+      <div class="velocity-legend-title">${metricLabel}</div>
       <div class="velocity-legend-bar" style="--legend-gradient: ${gradient};"></div>
-      <div class="velocity-legend-scale"><span>0 km/h</span><span>${Math.round(maxKmh * 10) / 10} km/h</span></div>
+      <div class="velocity-legend-scale"><span>0 ${unitLabel}</span><span>${
+        Math.round(maxDisplayValue * 10) / 10
+      } ${unitLabel}</span></div>
       <div class="velocity-legend-note">${scaleLabel}</div>
       <div class="velocity-legend-note">${availability}</div>
     `;

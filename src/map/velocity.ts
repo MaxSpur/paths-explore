@@ -1,16 +1,26 @@
-import type { Track, VelocityViewSettings } from "../model/types";
+import type { SegmentColorMetric, Track, VelocityViewSettings } from "../model/types";
 
 const EARTH_RADIUS_M = 6371000;
 
-interface SegmentComputation {
+interface SegmentVelocityComputation {
   startIndex: number;
   endIndex: number;
   metersPerSecond: number;
+  deltaSeconds: number;
 }
 
-export interface VelocityScaleInfo {
-  maxMetersPerSecond: number;
-  maxKmh: number;
+interface SegmentAccelerationComputation {
+  startIndex: number;
+  endIndex: number;
+  metersPerSecondSquared: number;
+}
+
+export interface SegmentColorScaleInfo {
+  metric: SegmentColorMetric;
+  maxBaseValue: number;
+  maxDisplayValue: number;
+  unitLabel: string;
+  metricLabel: string;
 }
 
 function toRadians(value: number): number {
@@ -53,8 +63,8 @@ function metersPerSecondToKmh(mps: number): number {
   return mps * 3.6;
 }
 
-export function computeTrackSegmentVelocities(track: Track): SegmentComputation[] {
-  const segments: SegmentComputation[] = [];
+export function computeTrackSegmentVelocities(track: Track): SegmentVelocityComputation[] {
+  const segments: SegmentVelocityComputation[] = [];
 
   for (let idx = 0; idx < track.points.length - 1; idx += 1) {
     const start = track.points[idx];
@@ -82,52 +92,114 @@ export function computeTrackSegmentVelocities(track: Track): SegmentComputation[
     segments.push({
       startIndex: idx,
       endIndex: idx + 1,
-      metersPerSecond
+      metersPerSecond,
+      deltaSeconds
     });
   }
 
   return segments;
 }
 
+export function computeTrackSegmentAccelerations(track: Track): SegmentAccelerationComputation[] {
+  const velocities = computeTrackSegmentVelocities(track);
+  const accelerations: SegmentAccelerationComputation[] = [];
+
+  for (let idx = 1; idx < velocities.length; idx += 1) {
+    const previous = velocities[idx - 1];
+    const current = velocities[idx];
+
+    // Only compare adjacent timed segments that share a point.
+    if (previous.endIndex !== current.startIndex) {
+      continue;
+    }
+
+    if (current.deltaSeconds <= 0) {
+      continue;
+    }
+
+    const metersPerSecondSquared = Math.abs(
+      (current.metersPerSecond - previous.metersPerSecond) / current.deltaSeconds
+    );
+
+    if (!Number.isFinite(metersPerSecondSquared)) {
+      continue;
+    }
+
+    accelerations.push({
+      startIndex: current.startIndex,
+      endIndex: current.endIndex,
+      metersPerSecondSquared
+    });
+  }
+
+  return accelerations;
+}
+
 function getAutoMaxVelocityMetersPerSecond(tracks: Track[]): number {
-  let maxVelocity = 0;
+  let maxValue = 0;
 
   for (const track of tracks) {
-    const segments = computeTrackSegmentVelocities(track);
-    for (const segment of segments) {
-      if (segment.metersPerSecond > maxVelocity) {
-        maxVelocity = segment.metersPerSecond;
+    for (const segment of computeTrackSegmentVelocities(track)) {
+      if (segment.metersPerSecond > maxValue) {
+        maxValue = segment.metersPerSecond;
       }
     }
   }
 
-  return maxVelocity;
+  return maxValue;
+}
+
+function getAutoMaxAccelerationMetersPerSecondSquared(tracks: Track[]): number {
+  let maxValue = 0;
+
+  for (const track of tracks) {
+    for (const segment of computeTrackSegmentAccelerations(track)) {
+      if (segment.metersPerSecondSquared > maxValue) {
+        maxValue = segment.metersPerSecondSquared;
+      }
+    }
+  }
+
+  return maxValue;
 }
 
 export function computeVelocityScaleInfo(
   tracks: Track[],
   settings: VelocityViewSettings
-): VelocityScaleInfo {
-  const autoMaxMps = getAutoMaxVelocityMetersPerSecond(tracks);
-  const fixedMaxMps = kmhToMetersPerSecond(Math.max(0, settings.fixedMaxKmh));
+): SegmentColorScaleInfo {
+  if (settings.metric === "acceleration") {
+    const autoMax = getAutoMaxAccelerationMetersPerSecondSquared(tracks);
+    const fixedMax = Math.max(0, settings.fixedMax);
+    const maxBaseValue = settings.scaleMode === "fixed" ? fixedMax : autoMax;
 
-  const maxMetersPerSecond = settings.scaleMode === "fixed" ? fixedMaxMps : autoMaxMps;
+    return {
+      metric: "acceleration",
+      maxBaseValue,
+      maxDisplayValue: maxBaseValue,
+      unitLabel: "m/s²",
+      metricLabel: "Acceleration"
+    };
+  }
+
+  const autoMax = getAutoMaxVelocityMetersPerSecond(tracks);
+  const fixedMax = kmhToMetersPerSecond(Math.max(0, settings.fixedMax));
+  const maxBaseValue = settings.scaleMode === "fixed" ? fixedMax : autoMax;
 
   return {
-    maxMetersPerSecond,
-    maxKmh: metersPerSecondToKmh(maxMetersPerSecond)
+    metric: "velocity",
+    maxBaseValue,
+    maxDisplayValue: metersPerSecondToKmh(maxBaseValue),
+    unitLabel: "km/h",
+    metricLabel: "Velocity"
   };
 }
 
-export function normalizeVelocity(
-  metersPerSecond: number,
-  scaleInfo: VelocityScaleInfo
-): number {
-  if (scaleInfo.maxMetersPerSecond <= 0 || !Number.isFinite(metersPerSecond)) {
+export function normalizeVelocity(value: number, scaleInfo: SegmentColorScaleInfo): number {
+  if (scaleInfo.maxBaseValue <= 0 || !Number.isFinite(value)) {
     return 0;
   }
 
-  return Math.min(1, Math.max(0, metersPerSecond / scaleInfo.maxMetersPerSecond));
+  return Math.min(1, Math.max(0, value / scaleInfo.maxBaseValue));
 }
 
 export function metersPerSecondToKilometersPerHour(value: number): number {

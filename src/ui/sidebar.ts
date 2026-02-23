@@ -2,6 +2,7 @@ import type {
   AppState,
   EditInteractionMode,
   ImportSummary,
+  SegmentColorMetric,
   VelocityScaleMode,
   VelocityViewSettings
 } from "../model/types";
@@ -32,9 +33,9 @@ interface SidebarCallbacks {
   onDeleteTrack: (trackId: string) => void;
   onToggleEdit: (trackId: string) => void;
   onEditModeChange: (mode: EditInteractionMode) => void;
-  onVelocityEnabledChange: (enabled: boolean) => void;
+  onVelocityModeChange: (mode: "off" | SegmentColorMetric) => void;
   onVelocityScaleModeChange: (mode: VelocityScaleMode) => void;
-  onVelocityFixedMaxChange: (maxKmh: number) => void;
+  onVelocityFixedMaxChange: (maxValue: number) => void;
   onVelocityColormapChange: (colormapId: string) => void;
 }
 
@@ -52,11 +53,12 @@ export class SidebarView {
   private lastEditMode: EditInteractionMode = "move";
   private lastVelocitySettings: VelocityViewSettings = {
     enabled: false,
+    metric: "velocity",
     scaleMode: "auto",
-    fixedMaxKmh: 60,
+    fixedMax: 60,
     colormapId: DEFAULT_COLORMAP_ID
   };
-  private lastVelocityMaxKmh = 0;
+  private lastVelocityMaxDisplayValue = 0;
 
   constructor(root: HTMLElement, callbacks: SidebarCallbacks) {
     this.root = root;
@@ -128,20 +130,25 @@ export class SidebarView {
           ${this.buildSectionControls("velocity")}
         </div>
         <div class="panel-section-content">
-          <label class="velocity-toggle">
-            <input data-action="velocity-enabled" type="checkbox" />
-            Color segments by velocity
-          </label>
+          <div class="velocity-mode-row segmented-control" role="group" aria-label="Segment coloring mode">
+            <button data-action="velocity-mode" data-mode="off" type="button" class="segmented-btn velocity-mode-btn">Off</button>
+            <button data-action="velocity-mode" data-mode="velocity" type="button" class="segmented-btn velocity-mode-btn">Velocity</button>
+            <button data-action="velocity-mode" data-mode="acceleration" type="button" class="segmented-btn velocity-mode-btn">Acceleration</button>
+          </div>
           <div class="velocity-controls">
             <label class="velocity-field">
               <span>Scale</span>
-              <select data-action="velocity-scale-mode">
-                <option value="auto">Auto (visible tracks)</option>
-                <option value="fixed">Fixed max velocity</option>
-              </select>
+              <div class="segmented-control velocity-scale-row" role="group" aria-label="Scale mode">
+                <button data-action="velocity-scale" data-scale="auto" type="button" class="segmented-btn velocity-scale-btn">
+                  Auto
+                </button>
+                <button data-action="velocity-scale" data-scale="fixed" type="button" class="segmented-btn velocity-scale-btn">
+                  Fixed
+                </button>
+              </div>
             </label>
             <label class="velocity-field">
-              <span>Max (km/h)</span>
+              <span id="velocity-max-label">Max (km/h)</span>
               <div class="velocity-max-row">
                 <input
                   class="velocity-max-input"
@@ -210,17 +217,17 @@ export class SidebarView {
     summary: ImportSummary | undefined,
     editMode: EditInteractionMode,
     velocitySettings: VelocityViewSettings,
-    velocityMaxKmh: number
+    velocityMaxDisplayValue: number
   ): void {
     this.lastState = state;
     this.lastSummary = summary;
     this.lastEditMode = editMode;
     this.lastVelocitySettings = velocitySettings;
-    this.lastVelocityMaxKmh = velocityMaxKmh;
+    this.lastVelocityMaxDisplayValue = velocityMaxDisplayValue;
 
     this.pruneCollapsedTrackIds(state);
     this.syncEditModeControls(editMode);
-    this.syncVelocityControls(velocitySettings, velocityMaxKmh);
+    this.syncVelocityControls(velocitySettings, velocityMaxDisplayValue);
     this.applySectionLayout();
 
     const importMessage = summary ? this.buildSummaryMessage(summary) : "No imports yet.";
@@ -376,10 +383,6 @@ export class SidebarView {
       const action = target.dataset.action;
 
       if (target instanceof HTMLSelectElement) {
-        if (action === "velocity-scale-mode") {
-          this.callbacks.onVelocityScaleModeChange(target.value as VelocityScaleMode);
-        }
-
         if (action === "velocity-colormap") {
           this.callbacks.onVelocityColormapChange(target.value);
         }
@@ -389,11 +392,6 @@ export class SidebarView {
 
       if (action === "edit-mode") {
         this.callbacks.onEditModeChange(target.value as EditInteractionMode);
-        return;
-      }
-
-      if (action === "velocity-enabled") {
-        this.callbacks.onVelocityEnabledChange(target.checked);
         return;
       }
 
@@ -454,6 +452,22 @@ export class SidebarView {
 
       if (action === "expand-all") {
         this.expandAll();
+        return;
+      }
+
+      if (action === "velocity-mode") {
+        const mode = button.dataset.mode;
+        if (mode === "off" || mode === "velocity" || mode === "acceleration") {
+          this.callbacks.onVelocityModeChange(mode);
+        }
+        return;
+      }
+
+      if (action === "velocity-scale") {
+        const mode = button.dataset.scale;
+        if (mode === "auto" || mode === "fixed") {
+          this.callbacks.onVelocityScaleModeChange(mode);
+        }
         return;
       }
 
@@ -560,7 +574,7 @@ export class SidebarView {
       this.lastSummary,
       this.lastEditMode,
       this.lastVelocitySettings,
-      this.lastVelocityMaxKmh
+      this.lastVelocityMaxDisplayValue
     );
   }
 
@@ -765,31 +779,55 @@ export class SidebarView {
 
   private syncVelocityControls(
     velocitySettings: VelocityViewSettings,
-    velocityMaxKmh: number
+    velocityMaxDisplayValue: number
   ): void {
-    const enabledInput = this.root.querySelector<HTMLInputElement>('input[data-action="velocity-enabled"]');
-    if (enabledInput) {
-      enabledInput.checked = velocitySettings.enabled;
-    }
+    const mode = velocitySettings.enabled ? velocitySettings.metric : "off";
+    const modeButtons = this.root.querySelectorAll<HTMLButtonElement>('button[data-action="velocity-mode"]');
+    modeButtons.forEach((button) => {
+      const isActive = button.dataset.mode === mode;
+      button.classList.toggle("is-active", isActive);
+      button.classList.toggle("is-inactive", !isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+    });
 
-    const scaleModeSelect = this.root.querySelector<HTMLSelectElement>('select[data-action="velocity-scale-mode"]');
-    if (scaleModeSelect) {
-      scaleModeSelect.value = velocitySettings.scaleMode;
-      scaleModeSelect.disabled = !velocitySettings.enabled;
+    const scaleButtons = this.root.querySelectorAll<HTMLButtonElement>('button[data-action="velocity-scale"]');
+    scaleButtons.forEach((button) => {
+      const isActive = button.dataset.scale === velocitySettings.scaleMode;
+      button.classList.toggle("is-active", isActive);
+      button.classList.toggle("is-inactive", !isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      button.disabled = !velocitySettings.enabled;
+    });
+
+    const unitLabel = velocitySettings.metric === "acceleration" ? "m/s²" : "km/h";
+    const inputStep = velocitySettings.metric === "acceleration" ? "0.1" : "1";
+    const maxLabel = this.root.querySelector<HTMLElement>("#velocity-max-label");
+    if (maxLabel) {
+      maxLabel.textContent = `Max (${unitLabel})`;
     }
 
     const maxInput = this.root.querySelector<HTMLInputElement>('input[data-action="velocity-max"]');
     const maxSlider = this.root.querySelector<HTMLInputElement>('input[data-action="velocity-max-slider"]');
-    const roundedMax = Number.isFinite(velocitySettings.fixedMaxKmh)
-      ? Math.max(0, Math.min(350, Math.round(velocitySettings.fixedMaxKmh)))
+    const roundedMax = Number.isFinite(velocitySettings.fixedMax)
+      ? Math.max(
+          0,
+          Math.min(
+            350,
+            velocitySettings.metric === "acceleration"
+              ? Math.round(velocitySettings.fixedMax * 10) / 10
+              : Math.round(velocitySettings.fixedMax)
+          )
+        )
       : 0;
 
     if (maxInput) {
       maxInput.value = String(roundedMax);
+      maxInput.step = inputStep;
       maxInput.disabled = !velocitySettings.enabled || velocitySettings.scaleMode !== "fixed";
     }
     if (maxSlider) {
       maxSlider.value = String(roundedMax);
+      maxSlider.step = inputStep;
       maxSlider.disabled = !velocitySettings.enabled || velocitySettings.scaleMode !== "fixed";
     }
 
@@ -810,15 +848,18 @@ export class SidebarView {
     }
 
     if (!velocitySettings.enabled) {
-      velocityMeta.textContent = "Velocity coloring is off.";
+      velocityMeta.textContent = "Segment coloring is off.";
       return;
     }
 
-    const roundedAutoMax = Number.isFinite(velocityMaxKmh) ? Math.round(velocityMaxKmh * 10) / 10 : 0;
+    const roundedAutoMax = Number.isFinite(velocityMaxDisplayValue)
+      ? Math.round(velocityMaxDisplayValue * 10) / 10
+      : 0;
+    const metricLabel = velocitySettings.metric === "acceleration" ? "acceleration" : "velocity";
     velocityMeta.textContent =
       velocitySettings.scaleMode === "fixed"
-        ? `Fixed max: ${roundedMax} km/h.`
-        : `Auto max: ${roundedAutoMax} km/h across visible tracks.`;
+        ? `Fixed ${metricLabel} max: ${roundedMax} ${unitLabel}.`
+        : `Auto ${metricLabel} max: ${roundedAutoMax} ${unitLabel} across visible tracks.`;
   }
 
   private buildSummaryMessage(summary: ImportSummary): string {
