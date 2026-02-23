@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Improve sidebar ergonomics with collapsible/reorderable sections and persistent layout.
+Refine sidebar section structure and reduce redundant import/status information.
 
 ## CURRENT_SUBTASK
-Add section-level collapse/reorder controls and persist section order + collapse state between reloads.
+Merge `Import` + `Status` into one compact section while preserving section collapse/reorder persistence.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -84,8 +84,11 @@ Add section-level collapse/reorder controls and persist section order + collapse
   - Reorder glyphs now use borderless typographic symbols (`▲/△`, `▼/▽`) with tighter alignment.
   - Rendering is bottom-to-top so tracks near the top of the list draw on top.
 - Sidebar layout:
-  - Main sections (`Import`, `Edit`, `Velocity`, `Status`, `Tracks`) now support collapse and up/down reorder controls.
+  - Main sections (`Import`, `Edit`, `Velocity`, `Tracks`) support collapse and up/down reorder controls.
   - Section ordering and collapsed state are stored in `localStorage` (`path-segments-sidebar-layout-v1`) and restored on reload.
+- Import/status:
+  - Former standalone `Status` section merged into `Import`.
+  - Import status is now one compact line: loaded total + last import result (errors still highlighted).
 - Velocity auto scale:
   - Auto mode now computes max speed from currently visible tracks only (map coloring + sidebar status text).
 

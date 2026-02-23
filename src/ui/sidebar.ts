@@ -7,7 +7,7 @@ import type {
 } from "../model/types";
 import { COLORMAPS, DEFAULT_COLORMAP_ID } from "../colormaps";
 
-const SIDEBAR_SECTION_IDS = ["import", "edit", "velocity", "summary", "tracks"] as const;
+const SIDEBAR_SECTION_IDS = ["import", "edit", "velocity", "tracks"] as const;
 type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 const SIDEBAR_LAYOUT_STORAGE_KEY = "path-segments-sidebar-layout-v1";
 
@@ -43,7 +43,6 @@ export class SidebarView {
   private callbacks: SidebarCallbacks;
   private fileInput: HTMLInputElement;
   private trackList: HTMLElement;
-  private summaryCount: HTMLElement;
   private summaryStatus: HTMLElement;
   private collapsedTrackIds = new Set<string>();
   private sectionOrder: SidebarSectionId[] = [...SIDEBAR_SECTION_IDS];
@@ -81,6 +80,7 @@ export class SidebarView {
           <label class="import-label" for="track-file-input">Import files</label>
           <input id="track-file-input" class="file-input" type="file" multiple accept=".gpx,.kml,.geojson,.json" />
           <p class="import-hint">Tip: drag and drop files anywhere on the page.</p>
+          <p id="summary-status" class="status-text">Loaded 0 tracks. No imports yet.</p>
         </div>
       </section>
 
@@ -174,17 +174,6 @@ export class SidebarView {
         </div>
       </section>
 
-      <section class="panel-section panel-summary sidebar-section" data-section-id="summary">
-        <div class="panel-section-header">
-          <h2>Status</h2>
-          ${this.buildSectionControls("summary")}
-        </div>
-        <div class="panel-section-content">
-          <div id="summary-count">Loaded tracks: 0</div>
-          <div id="summary-status" class="status-text">No imports yet.</div>
-        </div>
-      </section>
-
       <section class="panel-section panel-tracks sidebar-section" data-section-id="tracks">
         <div class="panel-section-header">
           <h2>Tracks</h2>
@@ -204,7 +193,6 @@ export class SidebarView {
 
     this.fileInput = this.root.querySelector("#track-file-input") as HTMLInputElement;
     this.trackList = this.root.querySelector("#track-list") as HTMLElement;
-    this.summaryCount = this.root.querySelector("#summary-count") as HTMLElement;
     this.summaryStatus = this.root.querySelector("#summary-status") as HTMLElement;
 
     this.loadSectionLayout();
@@ -235,12 +223,11 @@ export class SidebarView {
     this.syncVelocityControls(velocitySettings, velocityMaxKmh);
     this.applySectionLayout();
 
-    this.summaryCount.textContent = `Loaded tracks: ${state.tracks.length}`;
-
-    if (summary) {
-      this.summaryStatus.textContent = this.buildSummaryMessage(summary);
-      this.summaryStatus.classList.toggle("has-error", summary.issues.length > 0);
-    }
+    const importMessage = summary ? this.buildSummaryMessage(summary) : "No imports yet.";
+    this.summaryStatus.textContent = `Loaded ${state.tracks.length} track${
+      state.tracks.length === 1 ? "" : "s"
+    }. ${importMessage}`;
+    this.summaryStatus.classList.toggle("has-error", summary ? summary.issues.length > 0 : false);
 
     if (state.tracks.length === 0) {
       this.trackList.innerHTML = '<p class="empty-message">No tracks loaded.</p>';
@@ -835,10 +822,13 @@ export class SidebarView {
   }
 
   private buildSummaryMessage(summary: ImportSummary): string {
+    const importCountLabel = `${summary.importedTrackCount} track${
+      summary.importedTrackCount === 1 ? "" : "s"
+    }`;
     const successMessage =
       summary.importedTrackCount > 0
-        ? `Imported ${summary.importedTrackCount} track${summary.importedTrackCount === 1 ? "" : "s"}.`
-        : "No tracks imported.";
+        ? `Last import added ${importCountLabel}.`
+        : "Last import added no tracks.";
 
     if (summary.issues.length === 0) {
       return successMessage;
