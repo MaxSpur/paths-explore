@@ -15,6 +15,7 @@ function buildTimedTrack(id: string, points: Track["points"]): Track {
     format: "gpx",
     color: "#136f63",
     visible: true,
+    showSegments: true,
     showPoints: false,
     points
   };

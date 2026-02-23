@@ -22,6 +22,39 @@ export class TrackStore {
   private state: AppState = { tracks: [], selectedPointIds: [] };
   private listeners = new Set<StateListener>();
 
+  private normalizeTrackGeometryVisibility(
+    track: Track,
+    nextShowPoints: boolean,
+    nextShowSegments: boolean
+  ): Pick<Track, "showPoints" | "showSegments"> {
+    if (nextShowPoints || nextShowSegments) {
+      return {
+        showPoints: nextShowPoints,
+        showSegments: nextShowSegments
+      };
+    }
+
+    // At least one geometry visualization must remain on.
+    if (track.showPoints && !track.showSegments) {
+      return {
+        showPoints: false,
+        showSegments: true
+      };
+    }
+
+    if (track.showSegments && !track.showPoints) {
+      return {
+        showPoints: true,
+        showSegments: false
+      };
+    }
+
+    return {
+      showPoints: false,
+      showSegments: true
+    };
+  }
+
   getState(): AppState {
     return this.state;
   }
@@ -42,6 +75,7 @@ export class TrackStore {
       id: track.id || makeId("track"),
       color: getTrackColor(offset + idx),
       visible: track.visible ?? true,
+      showSegments: track.showSegments ?? true,
       showPoints: track.showPoints ?? false,
       points: ensurePointIds(track.points)
     }));
@@ -60,6 +94,7 @@ export class TrackStore {
       id: track.id || makeId("track"),
       color: track.color || getTrackColor(idx),
       visible: track.visible ?? true,
+      showSegments: track.showSegments ?? true,
       showPoints: track.showPoints ?? false,
       points: ensurePointIds(track.points)
     }));
@@ -167,9 +202,68 @@ export class TrackStore {
   setTrackPointsVisible(trackId: string, show: boolean): void {
     this.state = {
       ...this.state,
-      tracks: this.state.tracks.map((track) =>
-        track.id === trackId ? { ...track, showPoints: show } : track
-      )
+      tracks: this.state.tracks.map((track) => {
+        if (track.id !== trackId) {
+          return track;
+        }
+
+        const normalized = this.normalizeTrackGeometryVisibility(
+          track,
+          show,
+          track.showSegments ?? true
+        );
+        return {
+          ...track,
+          ...normalized
+        };
+      })
+    };
+
+    this.emit();
+  }
+
+  setTrackSegmentsVisible(trackId: string, show: boolean): void {
+    this.state = {
+      ...this.state,
+      tracks: this.state.tracks.map((track) => {
+        if (track.id !== trackId) {
+          return track;
+        }
+
+        const normalized = this.normalizeTrackGeometryVisibility(
+          track,
+          track.showPoints ?? false,
+          show
+        );
+        return {
+          ...track,
+          ...normalized
+        };
+      })
+    };
+
+    this.emit();
+  }
+
+  moveTrack(trackId: string, direction: "up" | "down"): void {
+    const currentIndex = this.state.tracks.findIndex((track) => track.id === trackId);
+
+    if (currentIndex < 0) {
+      return;
+    }
+
+    const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= this.state.tracks.length) {
+      return;
+    }
+
+    const tracks = [...this.state.tracks];
+    const [movedTrack] = tracks.splice(currentIndex, 1);
+    tracks.splice(targetIndex, 0, movedTrack);
+
+    this.state = {
+      ...this.state,
+      tracks
     };
 
     this.emit();

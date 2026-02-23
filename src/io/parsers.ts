@@ -174,6 +174,7 @@ function normalizeGeoJson(
           format,
           color: "",
           visible: true,
+          showSegments: true,
           showPoints: false,
           points
         });
@@ -201,6 +202,7 @@ function normalizeGeoJson(
             format,
             color: "",
             visible: true,
+            showSegments: true,
             showPoints: false,
             points
           });

@@ -11,6 +11,7 @@ function buildTrack(id: string, name: string): Track {
     format: "gpx",
     color: "",
     visible: true,
+    showSegments: true,
     showPoints: false,
     points: [
       { id: `${id}-a`, lat: 37, lng: -122 },
@@ -77,5 +78,57 @@ describe("track store", () => {
     store.selectPoints("track-1", ["track-1-b", "track-1-c"], true);
 
     expect(store.getState().selectedPointIds).toEqual(["track-1-a", "track-1-b", "track-1-c"]);
+  });
+
+  it("keeps at least one of points/segments enabled", () => {
+    const store = new TrackStore();
+    store.addTracks([buildTrack("track-1", "editable")]);
+
+    store.setTrackSegmentsVisible("track-1", false);
+    let track = store.getState().tracks[0];
+    expect(track.showSegments).toBe(false);
+    expect(track.showPoints).toBe(true);
+
+    store.setTrackPointsVisible("track-1", false);
+    track = store.getState().tracks[0];
+    expect(track.showSegments).toBe(true);
+    expect(track.showPoints).toBe(false);
+  });
+
+  it("reorders tracks up and down with boundary guards", () => {
+    const store = new TrackStore();
+    store.addTracks([
+      buildTrack("track-1", "one"),
+      buildTrack("track-2", "two"),
+      buildTrack("track-3", "three")
+    ]);
+
+    store.moveTrack("track-1", "up");
+    expect(store.getState().tracks.map((track) => track.id)).toEqual([
+      "track-1",
+      "track-2",
+      "track-3"
+    ]);
+
+    store.moveTrack("track-1", "down");
+    expect(store.getState().tracks.map((track) => track.id)).toEqual([
+      "track-2",
+      "track-1",
+      "track-3"
+    ]);
+
+    store.moveTrack("track-1", "down");
+    expect(store.getState().tracks.map((track) => track.id)).toEqual([
+      "track-2",
+      "track-3",
+      "track-1"
+    ]);
+
+    store.moveTrack("track-1", "down");
+    expect(store.getState().tracks.map((track) => track.id)).toEqual([
+      "track-2",
+      "track-3",
+      "track-1"
+    ]);
   });
 });

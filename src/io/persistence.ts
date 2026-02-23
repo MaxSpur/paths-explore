@@ -43,6 +43,7 @@ function isTrack(value: unknown): value is Track {
     (track.format === "gpx" || track.format === "kml" || track.format === "geojson") &&
     typeof track.color === "string" &&
     typeof track.visible === "boolean" &&
+    (typeof track.showSegments === "boolean" || typeof track.showSegments === "undefined") &&
     typeof track.showPoints === "boolean" &&
     Array.isArray(track.points)
   );

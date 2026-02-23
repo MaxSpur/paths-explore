@@ -12,6 +12,15 @@ interface FileImporter {
   bindDropZone: (dropZone: HTMLElement) => void;
 }
 
+function hasFilePayload(event: DragEvent): boolean {
+  const types = event.dataTransfer?.types;
+  if (!types) {
+    return false;
+  }
+
+  return Array.from(types).includes("Files");
+}
+
 function toFileArray(files: File[] | FileList): File[] {
   if (Array.isArray(files)) {
     return files;
@@ -67,18 +76,45 @@ export function createFileImporter(options: FileImporterOptions): FileImporter {
   };
 
   const bindDropZone = (dropZone: HTMLElement): void => {
-    dropZone.addEventListener("dragover", (event) => {
-      event.preventDefault();
+    let dragDepth = 0;
+
+    dropZone.addEventListener("dragenter", (event) => {
+      if (!hasFilePayload(event)) {
+        return;
+      }
+
+      dragDepth += 1;
       dropZone.classList.add("is-drag-over");
+      event.preventDefault();
     });
 
-    dropZone.addEventListener("dragleave", () => {
-      dropZone.classList.remove("is-drag-over");
+    dropZone.addEventListener("dragover", (event) => {
+      if (!hasFilePayload(event)) {
+        return;
+      }
+
+      event.preventDefault();
+      dropZone.classList.add("is-drag-over");
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "copy";
+      }
+    });
+
+    dropZone.addEventListener("dragleave", (event) => {
+      if (!hasFilePayload(event)) {
+        return;
+      }
+
+      dragDepth = Math.max(0, dragDepth - 1);
+      if (dragDepth === 0) {
+        dropZone.classList.remove("is-drag-over");
+      }
     });
 
     dropZone.addEventListener("drop", async (event) => {
       event.preventDefault();
       dropZone.classList.remove("is-drag-over");
+      dragDepth = 0;
 
       const files = event.dataTransfer?.files;
       if (!files) {

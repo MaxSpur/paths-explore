@@ -53,7 +53,11 @@ export function createApp(root: HTMLElement): void {
 
   const render = (options: RenderOptions = {}): void => {
     const state = store.getState();
-    const velocityScaleInfo = computeVelocityScaleInfo(state.tracks, velocitySettings);
+    const velocityScaleTracks =
+      velocitySettings.scaleMode === "auto"
+        ? state.tracks.filter((track) => track.visible)
+        : state.tracks;
+    const velocityScaleInfo = computeVelocityScaleInfo(velocityScaleTracks, velocitySettings);
 
     sidebar.render(state, latestSummary, editMode, velocitySettings, velocityScaleInfo.maxKmh);
     mapView.renderTracks(state.tracks, {
@@ -100,10 +104,22 @@ export function createApp(root: HTMLElement): void {
     },
     onToggleVisibility: (trackId, visible) => {
       store.setTrackVisibility(trackId, visible);
-      render({ fitToVisible: true });
+      render();
     },
     onTogglePoints: (trackId, show) => {
       store.setTrackPointsVisible(trackId, show);
+      render();
+    },
+    onToggleSegments: (trackId, show) => {
+      store.setTrackSegmentsVisible(trackId, show);
+      render();
+    },
+    onMoveTrackUp: (trackId) => {
+      store.moveTrack(trackId, "up");
+      render();
+    },
+    onMoveTrackDown: (trackId) => {
+      store.moveTrack(trackId, "down");
       render();
     },
     onFocusTrack: (trackId) => {

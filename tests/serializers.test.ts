@@ -10,6 +10,7 @@ function buildTrack(format: Track["format"]): Track {
     format,
     color: "#136f63",
     visible: true,
+    showSegments: true,
     showPoints: false,
     points: [
       { id: "p1", lat: 37.1, lng: -122.1, ele: 10, time: "2026-01-01T00:00:00Z" },

@@ -285,8 +285,15 @@ input {
   padding-bottom: 0.35rem;
 }
 
+.track-item-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .track-item-header-button {
-  width: 100%;
+  min-width: 0;
   border: none;
   background: transparent;
   padding: 0.15rem 0.1rem;
@@ -294,8 +301,7 @@ input {
   text-align: left;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.45rem;
+  justify-content: flex-start;
 }
 
 .track-item-header-main {
@@ -313,10 +319,50 @@ input {
   white-space: nowrap;
 }
 
-.track-collapse-indicator {
-  font-size: 0.95rem;
+.track-item-header-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.12rem;
+}
+
+.track-header-icon-btn {
+  border: none;
+  background: transparent;
   color: var(--muted);
-  width: 1rem;
+  border-radius: 0.25rem;
+  width: 1.2rem;
+  height: 1.2rem;
+  padding: 0;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.track-header-icon-btn:hover:not(:disabled) {
+  color: #213b32;
+}
+
+.track-header-icon-btn:disabled {
+  color: #9aa9a1;
+  opacity: 1;
+  cursor: default;
+}
+
+.track-header-icon-btn:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--accent), #1b3a31 25%);
+  outline-offset: 1px;
+}
+
+.track-collapse-indicator {
+  display: inline-grid;
+  place-items: center;
+  width: 1ch;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
   text-align: center;
 }
 
@@ -328,12 +374,48 @@ input {
   flex-shrink: 0;
 }
 
-.track-controls {
-  display: flex;
-  justify-content: space-between;
-  gap: 0.6rem;
+.track-toggle-row {
   margin-top: 0.5rem;
-  font-size: 0.87rem;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.track-toggle-btn {
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: var(--text);
+  border-radius: 999px;
+  padding: 0.24rem 0.45rem;
+  min-height: 1.9rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-align: center;
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+
+.track-toggle-btn.is-active {
+  border-color: color-mix(in srgb, var(--accent), #1b3a31 25%);
+  background: #e8f7f1;
+  color: #0f3128;
+}
+
+.track-toggle-btn.is-inactive {
+  color: #475a52;
+}
+
+.track-toggle-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.track-toggle-btn:disabled {
+  opacity: 0.68;
+  cursor: not-allowed;
+}
+
+.track-edit-toggle.is-active {
+  background: color-mix(in srgb, var(--accent), #ffffff 70%);
 }
 
 .track-actions {
@@ -366,12 +448,102 @@ input {
 }
 
 .map-view {
+  position: relative;
   width: 100%;
   height: 100%;
 }
 
-.map-view.is-space-pan {
-  cursor: grab;
+.map-view.is-editing-cursor,
+.map-view.is-editing-cursor * {
+  cursor: crosshair !important;
+}
+
+.map-view.is-grab-cursor,
+.map-view.is-grab-cursor * {
+  cursor: grab !important;
+}
+
+.map-view.has-proxy-cursor,
+.map-view.has-proxy-cursor * {
+  cursor: none !important;
+}
+
+.map-space-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 24px;
+  height: 24px;
+  margin-left: -12px;
+  margin-top: -12px;
+  pointer-events: none;
+  z-index: 1200;
+}
+
+.map-space-cursor.is-hidden {
+  display: none;
+}
+
+.map-space-cursor.is-crosshair::before,
+.map-space-cursor.is-crosshair::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: #111111;
+  border-radius: 2px;
+}
+
+.map-space-cursor.is-crosshair::before {
+  width: 2px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+}
+
+.map-space-cursor.is-crosshair::after {
+  width: 24px;
+  height: 2px;
+  transform: translate(-50%, -50%);
+}
+
+.map-space-cursor.is-pan::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  border: 2px solid #162720;
+  border-radius: 999px;
+  background: color-mix(in srgb, #ffffff, #d8ece3 20%);
+}
+
+.map-space-cursor.is-pan::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #162720;
+  transform: translate(-50%, -50%);
+}
+
+body.is-drag-over::before {
+  content: "Drop path files to import";
+  position: fixed;
+  inset: 0.75rem;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed color-mix(in srgb, var(--accent), #143129 35%);
+  border-radius: 0.85rem;
+  background: color-mix(in srgb, #dff5ea, transparent 20%);
+  color: #184b3f;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  backdrop-filter: blur(1px);
 }
 
 .velocity-legend {

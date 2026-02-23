@@ -24,6 +24,7 @@ export interface Track {
   format: SupportedFormat;
   color: string;
   visible: boolean;
+  showSegments: boolean;
   showPoints: boolean;
   points: TrackPoint[];
 }

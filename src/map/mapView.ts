@@ -65,6 +65,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLInputElement ||
     target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target instanceof HTMLButtonElement ||
     target.isContentEditable
   );
 }
@@ -73,6 +75,7 @@ export class MapView {
   private map: L.Map;
   private layerGroup: L.LayerGroup;
   private velocityLegendElement?: HTMLDivElement;
+  private spaceCursorElement: HTMLDivElement;
   private callbacks: MapViewCallbacks;
   private draggingPoint?: DraggingPointContext;
   private marqueeSelection?: MarqueeSelectionContext;
@@ -82,6 +85,10 @@ export class MapView {
   private activeEditMode: EditInteractionMode = "move";
   private suppressNextMapClick = false;
   private isSpacePressed = false;
+  private isPointerInsideMap = false;
+  private isHoveringEditablePoint = false;
+  private pointerX = 0;
+  private pointerY = 0;
 
   constructor(container: HTMLElement, callbacks: MapViewCallbacks) {
     this.callbacks = callbacks;
@@ -97,6 +104,11 @@ export class MapView {
     }).addTo(this.map);
 
     this.layerGroup = L.layerGroup().addTo(this.map);
+    this.spaceCursorElement = L.DomUtil.create(
+      "div",
+      "map-space-cursor is-hidden",
+      this.map.getContainer()
+    ) as HTMLDivElement;
     const velocityLegendControl = L.control({ position: "bottomright" });
     velocityLegendControl.onAdd = () => {
       const legend = L.DomUtil.create("div", "velocity-legend is-hidden") as HTMLDivElement;
@@ -121,8 +133,11 @@ export class MapView {
     });
 
     this.map.on("mousedown", this.onMapMouseDown);
-    window.addEventListener("keydown", this.onWindowKeyDown);
-    window.addEventListener("keyup", this.onWindowKeyUp);
+    this.map.getContainer().addEventListener("mouseenter", this.onMapMouseEnter);
+    this.map.getContainer().addEventListener("mousemove", this.onMapMouseMove);
+    this.map.getContainer().addEventListener("mouseleave", this.onMapMouseLeave);
+    document.addEventListener("keydown", this.onWindowKeyDown, true);
+    document.addEventListener("keyup", this.onWindowKeyUp, true);
     window.addEventListener("blur", this.onWindowBlur);
 
     window.setTimeout(() => {
@@ -134,7 +149,7 @@ export class MapView {
     this.latestTracks = tracks;
     this.activeEditingTrackId = options.editingTrackId;
     this.activeEditMode = options.editMode ?? "move";
-
+    this.isHoveringEditablePoint = false;
     this.resetDragState();
     this.resetMarqueeSelection();
     this.resetLassoSelection();
@@ -144,25 +159,40 @@ export class MapView {
     const velocitySettings = options.velocitySettings;
     const renderVelocity = velocitySettings?.enabled ?? false;
     const colormap = velocitySettings ? getColormapById(velocitySettings.colormapId) : undefined;
+    const velocityScaleTracks =
+      velocitySettings?.scaleMode === "auto" ? tracks.filter((track) => track.visible) : tracks;
     const velocityScaleInfo =
-      renderVelocity && velocitySettings ? computeVelocityScaleInfo(tracks, velocitySettings) : undefined;
+      renderVelocity && velocitySettings
+        ? computeVelocityScaleInfo(velocityScaleTracks, velocitySettings)
+        : undefined;
     this.updateVelocityLegend(renderVelocity, velocitySettings, colormap, velocityScaleInfo);
 
-    for (const track of tracks) {
+    // Draw bottom-to-top so the first track in the sidebar list appears on top.
+    for (const track of [...tracks].reverse()) {
       if (!track.visible || track.points.length === 0) {
         continue;
       }
 
       const lineCoords: L.LatLngExpression[] = track.points.map((point) => [point.lat, point.lng]);
-      const polyline = renderVelocity
-        ? this.renderVelocityTrackPolyline(track, lineCoords, colormap?.colors ?? [], velocityScaleInfo)
+      const showSegments = track.showSegments ?? true;
+      const polyline = showSegments
+        ? renderVelocity
+          ? this.renderVelocityTrackPolyline(track, lineCoords, colormap?.colors ?? [], velocityScaleInfo)
+          : L.polyline(lineCoords, {
+              color: track.color,
+              weight: 4,
+              opacity: 0.95
+            })
         : L.polyline(lineCoords, {
             color: track.color,
-            weight: 4,
-            opacity: 0.95
+            weight: 0,
+            opacity: 0,
+            interactive: false
           });
 
-      this.layerGroup.addLayer(polyline);
+      if (showSegments) {
+        this.layerGroup.addLayer(polyline);
+      }
 
       const showPoints = track.showPoints || track.id === options.editingTrackId;
       if (!showPoints) {
@@ -201,6 +231,16 @@ export class MapView {
         });
 
         if (track.id === options.editingTrackId && this.activeEditMode === "move") {
+          marker.on("mouseover", () => {
+            this.isHoveringEditablePoint = true;
+            this.updateCursorClass();
+          });
+
+          marker.on("mouseout", () => {
+            this.isHoveringEditablePoint = false;
+            this.updateCursorClass();
+          });
+
           marker.on("mousedown", (event) => {
             if (this.isSpacePressed) {
               return;
@@ -231,6 +271,8 @@ export class MapView {
     if (options.fitToVisible) {
       this.fitVisibleTracks(tracks);
     }
+
+    this.updateCursorClass();
   }
 
   focusTrack(trackId: string, tracks: Track[]): void {
@@ -403,6 +445,7 @@ export class MapView {
     };
 
     this.map.dragging.disable();
+    this.updateCursorClass();
     this.map.on("mousemove", this.onDragMove);
     this.map.on("mouseup", this.onDragEnd);
   }
@@ -494,13 +537,19 @@ export class MapView {
   };
 
   private onWindowKeyDown = (event: KeyboardEvent): void => {
-    if (event.code !== "Space" || event.repeat || isTypingTarget(event.target)) {
+    if (event.code !== "Space" || isTypingTarget(event.target)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (this.isSpacePressed) {
       return;
     }
 
     this.isSpacePressed = true;
-    this.updateSpacePanClass();
-    event.preventDefault();
+    this.updateCursorClass();
   };
 
   private onWindowKeyUp = (event: KeyboardEvent): void => {
@@ -508,13 +557,37 @@ export class MapView {
       return;
     }
 
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (!this.isSpacePressed) {
+      return;
+    }
+
     this.isSpacePressed = false;
-    this.updateSpacePanClass();
+    this.updateCursorClass();
   };
 
   private onWindowBlur = (): void => {
     this.isSpacePressed = false;
-    this.updateSpacePanClass();
+    this.updateCursorClass();
+  };
+
+  private onMapMouseEnter = (event: MouseEvent): void => {
+    this.isPointerInsideMap = true;
+    this.updatePointerPosition(event);
+    this.updateCursorClass();
+  };
+
+  private onMapMouseMove = (event: MouseEvent): void => {
+    this.updatePointerPosition(event);
+    this.updateCursorClass();
+  };
+
+  private onMapMouseLeave = (): void => {
+    this.isPointerInsideMap = false;
+    this.isHoveringEditablePoint = false;
+    this.updateCursorClass();
   };
 
   private startMarqueeSelection(event: L.LeafletMouseEvent, additive: boolean): void {
@@ -542,6 +615,7 @@ export class MapView {
     };
 
     this.map.dragging.disable();
+    this.updateCursorClass();
     this.map.on("mousemove", this.onMarqueeMove);
     this.map.on("mouseup", this.onMarqueeEnd);
   }
@@ -595,6 +669,7 @@ export class MapView {
     };
 
     this.map.dragging.disable();
+    this.updateCursorClass();
     this.map.on("mousemove", this.onLassoMove);
     this.map.on("mouseup", this.onLassoEnd);
   }
@@ -691,6 +766,7 @@ export class MapView {
 
     this.marqueeSelection = undefined;
     this.map.dragging.enable();
+    this.updateCursorClass();
     this.map.off("mousemove", this.onMarqueeMove);
     this.map.off("mouseup", this.onMarqueeEnd);
   }
@@ -706,6 +782,7 @@ export class MapView {
 
     this.lassoSelection = undefined;
     this.map.dragging.enable();
+    this.updateCursorClass();
     this.map.off("mousemove", this.onLassoMove);
     this.map.off("mouseup", this.onLassoEnd);
   }
@@ -717,11 +794,40 @@ export class MapView {
 
     this.draggingPoint = undefined;
     this.map.dragging.enable();
+    this.updateCursorClass();
     this.map.off("mousemove", this.onDragMove);
     this.map.off("mouseup", this.onDragEnd);
   }
 
-  private updateSpacePanClass(): void {
-    this.map.getContainer().classList.toggle("is-space-pan", this.isSpacePressed);
+  private updateCursorClass(): void {
+    const container = this.map.getContainer();
+    const isEditingTrack = Boolean(this.activeEditingTrackId);
+    const wantsCrosshair =
+      isEditingTrack &&
+      (this.activeEditMode !== "move" || this.isHoveringEditablePoint) &&
+      !this.isSpacePressed;
+    const overlayMode = wantsCrosshair ? "crosshair" : "pan";
+    const showCursorOverlay = this.isPointerInsideMap;
+
+    container.classList.toggle("is-editing-cursor", wantsCrosshair);
+    container.classList.toggle("is-grab-cursor", !wantsCrosshair);
+    container.classList.toggle("has-proxy-cursor", showCursorOverlay);
+
+    this.spaceCursorElement.classList.toggle("is-hidden", !showCursorOverlay);
+    this.spaceCursorElement.classList.toggle(
+      "is-crosshair",
+      showCursorOverlay && overlayMode === "crosshair"
+    );
+    this.spaceCursorElement.classList.toggle("is-pan", showCursorOverlay && overlayMode === "pan");
+
+    if (showCursorOverlay) {
+      this.spaceCursorElement.style.transform = `translate(${this.pointerX}px, ${this.pointerY}px)`;
+    }
+  }
+
+  private updatePointerPosition(event: MouseEvent): void {
+    const rect = this.map.getContainer().getBoundingClientRect();
+    this.pointerX = event.clientX - rect.left;
+    this.pointerY = event.clientY - rect.top;
   }
 }

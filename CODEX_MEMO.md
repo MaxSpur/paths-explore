@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Extend the path viewer/editor with velocity-based segment visualization using imported perceptual colormaps.
+Improve track list layering controls so overlap order is user-controlled and consistent with the list order.
 
 ## CURRENT_SUBTASK
-Enable full-page drag/drop importing and tighten visual centering of compact edit mode buttons.
+Tune track header controls to a borderless typographic glyph style and improve icon alignment.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -64,6 +64,27 @@ Enable full-page drag/drop importing and tighten visual centering of compact edi
 - Import UX:
   - Dedicated drop box removed; users can now drag and drop files anywhere on the page.
   - Import section uses a compact hint line instead of a large drop target block.
+  - Full-page drag-over overlay now appears while file payload is dragged over the app.
+- Cursor behavior:
+  - Native map cursor is hidden while inside the map; proxy cursor is used for consistency.
+  - Pan proxy (circular) in normal mode and editing `move` mode.
+  - Crosshair proxy in editing `marquee`/`lasso` modes.
+  - In editing `move` mode, hovering editable track points switches proxy to crosshair.
+  - Space pressed always forces pan proxy.
+  - Cursor classes are reapplied after drag/marquee/lasso start/end and after full render cycles.
+  - Space key handlers consume repeat keydown/keyup events (except when typing into form controls).
+- Track list control UX:
+  - Replaced checkbox toggles with pill-style buttons for `Visible`, `Lines`, `Points`, and `Edit`.
+  - Removed `Start Edit`/`Stop Edit` action button in favor of a persistent edit-state toggle.
+  - Visibility toggling no longer triggers map auto-fit/movement.
+  - Track visualization rules enforce at least one of `Points` or `Segments` active.
+- Track ordering:
+  - Sidebar ordering now controls map overlap order.
+  - Per-track header controls include move up/down actions plus collapse toggle.
+  - Reorder glyphs now use borderless typographic symbols (`▲/△`, `▼/▽`) with tighter alignment.
+  - Rendering is bottom-to-top so tracks near the top of the list draw on top.
+- Velocity auto scale:
+  - Auto mode now computes max speed from currently visible tracks only (map coloring + sidebar status text).
 
 ## KEY_DECISIONS
 - Stack: Vite + Vanilla TypeScript.

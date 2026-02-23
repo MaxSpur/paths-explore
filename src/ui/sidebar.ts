@@ -11,6 +11,9 @@ interface SidebarCallbacks {
   onImportFiles: (files: File[] | FileList) => Promise<void>;
   onToggleVisibility: (trackId: string, visible: boolean) => void;
   onTogglePoints: (trackId: string, show: boolean) => void;
+  onToggleSegments: (trackId: string, show: boolean) => void;
+  onMoveTrackUp: (trackId: string) => void;
+  onMoveTrackDown: (trackId: string) => void;
   onFocusTrack: (trackId: string) => void;
   onExportTrack: (trackId: string) => void;
   onDeleteTrack: (trackId: string) => void;
@@ -103,7 +106,7 @@ export class SidebarView {
           <label class="velocity-field">
             <span>Scale</span>
             <select data-action="velocity-scale-mode">
-              <option value="auto">Auto (all loaded tracks)</option>
+              <option value="auto">Auto (visible tracks)</option>
               <option value="fixed">Fixed max velocity</option>
             </select>
           </label>
@@ -200,52 +203,115 @@ export class SidebarView {
     }
 
     this.trackList.innerHTML = state.tracks
-      .map((track) => {
+      .map((track, index) => {
         const isEditing = state.editingTrackId === track.id;
         const isCollapsed = this.collapsedTrackIds.has(track.id);
         const safeTrackName = this.escapeHtml(track.name);
+        const canMoveUp = index > 0;
+        const canMoveDown = index < state.tracks.length - 1;
 
         return `
           <article class="track-item${isEditing ? " is-editing" : ""}${
             isCollapsed ? " is-collapsed" : ""
           }" data-track-id="${track.id}">
-            <button
-              class="track-item-header-button"
-              data-action="toggle-collapse"
-              data-track-id="${track.id}"
-              type="button"
-              aria-expanded="${isCollapsed ? "false" : "true"}"
-            >
-              <span class="track-item-header-main">
-                <span class="track-color" style="background:${track.color}"></span>
-                <span class="track-title" title="${safeTrackName}">${safeTrackName}</span>
-              </span>
-              <span class="track-collapse-indicator">${isCollapsed ? "+" : "-"}</span>
-            </button>
+            <div class="track-item-header">
+              <button
+                class="track-item-header-button"
+                data-action="toggle-collapse"
+                data-track-id="${track.id}"
+                type="button"
+                aria-expanded="${isCollapsed ? "false" : "true"}"
+              >
+                <span class="track-item-header-main">
+                  <span class="track-color" style="background:${track.color}"></span>
+                  <span class="track-title" title="${safeTrackName}">${safeTrackName}</span>
+                </span>
+              </button>
+              <div class="track-item-header-controls">
+                <button
+                  class="track-header-icon-btn"
+                  data-action="move-up"
+                  data-track-id="${track.id}"
+                  type="button"
+                  title="Move track up"
+                  aria-label="Move track up"
+                  ${canMoveUp ? "" : "disabled"}
+                >
+                  ${canMoveUp ? "▲" : "△"}
+                </button>
+                <button
+                  class="track-header-icon-btn"
+                  data-action="move-down"
+                  data-track-id="${track.id}"
+                  type="button"
+                  title="Move track down"
+                  aria-label="Move track down"
+                  ${canMoveDown ? "" : "disabled"}
+                >
+                  ${canMoveDown ? "▼" : "▽"}
+                </button>
+                <button
+                  class="track-header-icon-btn"
+                  data-action="toggle-collapse"
+                  data-track-id="${track.id}"
+                  type="button"
+                  title="${isCollapsed ? "Expand track" : "Collapse track"}"
+                  aria-label="${isCollapsed ? "Expand track" : "Collapse track"}"
+                  aria-expanded="${isCollapsed ? "false" : "true"}"
+                >
+                  <span class="track-collapse-indicator">${isCollapsed ? "＋" : "－"}</span>
+                </button>
+              </div>
+            </div>
             ${
               isCollapsed
                 ? ""
                 : `
-              <div class="track-controls">
-                <label>
-                  <input data-action="toggle-visible" data-track-id="${track.id}" type="checkbox" ${
-                    track.visible ? "checked" : ""
-                  } />
-                  visible
-                </label>
-                <label>
-                  <input data-action="toggle-points" data-track-id="${track.id}" type="checkbox" ${
-                    track.showPoints || isEditing ? "checked" : ""
-                  } ${isEditing ? 'disabled title="Forced on during edit mode"' : ""} />
-                  points
-                </label>
+              <div class="track-toggle-row">
+                <button
+                  class="track-toggle-btn ${track.visible ? "is-active" : "is-inactive"}"
+                  data-action="toggle-visible"
+                  data-track-id="${track.id}"
+                  data-next-visible="${track.visible ? "false" : "true"}"
+                  type="button"
+                  aria-pressed="${track.visible ? "true" : "false"}"
+                >
+                  Visible
+                </button>
+                <button
+                  class="track-toggle-btn ${track.showSegments ? "is-active" : "is-inactive"}"
+                  data-action="toggle-segments"
+                  data-track-id="${track.id}"
+                  data-next-segments="${track.showSegments ? "false" : "true"}"
+                  type="button"
+                  aria-pressed="${track.showSegments ? "true" : "false"}"
+                >
+                  Lines
+                </button>
+                <button
+                  class="track-toggle-btn ${track.showPoints || isEditing ? "is-active" : "is-inactive"}"
+                  data-action="toggle-points"
+                  data-track-id="${track.id}"
+                  data-next-points="${track.showPoints || isEditing ? "false" : "true"}"
+                  type="button"
+                  aria-pressed="${track.showPoints || isEditing ? "true" : "false"}"
+                  ${isEditing ? 'disabled title="Points are enabled while this track is being edited."' : ""}
+                >
+                  Points
+                </button>
+                <button
+                  class="track-toggle-btn track-edit-toggle ${isEditing ? "is-active" : "is-inactive"}"
+                  data-action="toggle-edit"
+                  data-track-id="${track.id}"
+                  type="button"
+                  aria-pressed="${isEditing ? "true" : "false"}"
+                >
+                  ${isEditing ? "Editing" : "Edit"}
+                </button>
               </div>
               <div class="track-actions">
                 <button data-action="focus" data-track-id="${track.id}" type="button">Focus</button>
                 <button data-action="export" data-track-id="${track.id}" type="button">Export</button>
-                <button data-action="edit" data-track-id="${track.id}" type="button">${
-                  isEditing ? "Stop Edit" : "Start Edit"
-                }</button>
                 <button data-action="delete" data-track-id="${track.id}" type="button">Delete</button>
               </div>
             `
@@ -314,19 +380,6 @@ export class SidebarView {
         }
         return;
       }
-
-      const trackId = target.dataset.trackId;
-      if (!trackId) {
-        return;
-      }
-
-      if (action === "toggle-visible") {
-        this.callbacks.onToggleVisibility(trackId, target.checked);
-      }
-
-      if (action === "toggle-points") {
-        this.callbacks.onTogglePoints(trackId, target.checked);
-      }
     });
 
     this.root.addEventListener("click", (event) => {
@@ -358,6 +411,36 @@ export class SidebarView {
         return;
       }
 
+      if (action === "toggle-visible") {
+        this.callbacks.onToggleVisibility(trackId, button.dataset.nextVisible === "true");
+        return;
+      }
+
+      if (action === "move-up") {
+        this.callbacks.onMoveTrackUp(trackId);
+        return;
+      }
+
+      if (action === "move-down") {
+        this.callbacks.onMoveTrackDown(trackId);
+        return;
+      }
+
+      if (action === "toggle-points") {
+        this.callbacks.onTogglePoints(trackId, button.dataset.nextPoints === "true");
+        return;
+      }
+
+      if (action === "toggle-segments") {
+        this.callbacks.onToggleSegments(trackId, button.dataset.nextSegments === "true");
+        return;
+      }
+
+      if (action === "toggle-edit") {
+        this.callbacks.onToggleEdit(trackId);
+        return;
+      }
+
       if (action === "toggle-collapse") {
         this.toggleTrackCollapse(trackId);
         return;
@@ -378,9 +461,6 @@ export class SidebarView {
         return;
       }
 
-      if (action === "edit") {
-        this.callbacks.onToggleEdit(trackId);
-      }
     });
 
     this.root.addEventListener("input", (event) => {
@@ -506,7 +586,7 @@ export class SidebarView {
     velocityMeta.textContent =
       velocitySettings.scaleMode === "fixed"
         ? `Fixed max: ${roundedMax} km/h.`
-        : `Auto max: ${roundedAutoMax} km/h across loaded tracks.`;
+        : `Auto max: ${roundedAutoMax} km/h across visible tracks.`;
   }
 
   private buildSummaryMessage(summary: ImportSummary): string {
