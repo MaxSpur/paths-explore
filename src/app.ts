@@ -140,8 +140,18 @@ export function createApp(root: HTMLElement): void {
       render({ fitToVisible: true });
     },
     onToggleEdit: (trackId) => {
-      const currentlyEditing = store.getState().editingTrackId;
-      store.setEditingTrack(currentlyEditing === trackId ? undefined : trackId);
+      const state = store.getState();
+      const currentlyEditing = state.editingTrackId;
+      const nextEditingTrackId = currentlyEditing === trackId ? undefined : trackId;
+
+      if (nextEditingTrackId) {
+        const track = state.tracks.find((candidate) => candidate.id === trackId);
+        if (track && !track.visible) {
+          store.setTrackVisibility(trackId, true);
+        }
+      }
+
+      store.setEditingTrack(nextEditingTrackId);
       render();
     },
     onEditModeChange: (mode) => {

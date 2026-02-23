@@ -4,7 +4,7 @@
 Revise velocity controls and add acceleration-based segment coloring.
 
 ## CURRENT_SUBTASK
-Replace velocity checkbox/dropdown UI with pill controls and wire acceleration rendering + legends.
+Improve edit-mode behavior with colorized segments and visibility-aware edit toggling.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -59,6 +59,9 @@ Replace velocity checkbox/dropdown UI with pill controls and wire acceleration r
   - Acceleration mode colors segments by absolute acceleration magnitude (`m/s²`) from consecutive timed segment velocities.
   - Colormap selection is CSV-backed and loaded from discovered files.
   - Map legend now adapts to active metric (`Velocity` or `Acceleration`) including units.
+  - While colorized segments are active on the editing track, edit markers switch to minimal ring-style markers so segment colors remain visible.
+- Editing toggle behavior:
+  - Starting edit on a hidden track now auto-enables that track’s visibility before entering edit mode.
   - Colormaps are now auto-discovered from `src/colormaps/*.csv` at build/dev time and listed automatically in the Velocity selector.
   - Fixed max control now supports 0..350 km/h and uses synchronized number + range slider inputs.
 - Sidebar editing UX:

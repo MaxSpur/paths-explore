@@ -207,6 +207,9 @@ export class MapView {
         continue;
       }
 
+      const useMinimalEditingMarkers =
+        renderVelocity && track.id === options.editingTrackId && showSegments;
+
       const markerByPointId = new Map<string, L.CircleMarker>();
       const indexByPointId = new Map<string, number>();
       const selectedInTrack = track.points
@@ -216,11 +219,17 @@ export class MapView {
       track.points.forEach((point, pointIndex) => {
         const isSelected = selectedPointIdSet.has(point.id);
         const marker = L.circleMarker([point.lat, point.lng], {
-          radius: isSelected ? 6 : 4,
-          weight: isSelected ? 3 : 2,
-          color: isSelected ? "#111111" : "#ffffff",
-          fillColor: track.color,
-          fillOpacity: 1,
+          radius: useMinimalEditingMarkers ? (isSelected ? 5 : 2.2) : isSelected ? 6 : 4,
+          weight: useMinimalEditingMarkers ? (isSelected ? 2.4 : 1.2) : isSelected ? 3 : 2,
+          color: useMinimalEditingMarkers
+            ? isSelected
+              ? "#0d0d0d"
+              : "rgba(17, 17, 17, 0.68)"
+            : isSelected
+              ? "#111111"
+              : "#ffffff",
+          fillColor: useMinimalEditingMarkers ? "#ffffff" : track.color,
+          fillOpacity: useMinimalEditingMarkers ? (isSelected ? 0.82 : 0) : 1,
           interactive: true
         });
 
