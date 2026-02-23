@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Improve track list layering controls so overlap order is user-controlled and consistent with the list order.
+Improve sidebar ergonomics with collapsible/reorderable sections and persistent layout.
 
 ## CURRENT_SUBTASK
-Tune track header controls to a borderless typographic glyph style and improve icon alignment.
+Add section-level collapse/reorder controls and persist section order + collapse state between reloads.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -83,6 +83,9 @@ Tune track header controls to a borderless typographic glyph style and improve i
   - Per-track header controls include move up/down actions plus collapse toggle.
   - Reorder glyphs now use borderless typographic symbols (`▲/△`, `▼/▽`) with tighter alignment.
   - Rendering is bottom-to-top so tracks near the top of the list draw on top.
+- Sidebar layout:
+  - Main sections (`Import`, `Edit`, `Velocity`, `Status`, `Tracks`) now support collapse and up/down reorder controls.
+  - Section ordering and collapsed state are stored in `localStorage` (`path-segments-sidebar-layout-v1`) and restored on reload.
 - Velocity auto scale:
   - Auto mode now computes max speed from currently visible tracks only (map coloring + sidebar status text).
 
