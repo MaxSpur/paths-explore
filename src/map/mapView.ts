@@ -76,6 +76,8 @@ interface RankedMetricSegment {
   latLngs: [L.LatLngTuple, L.LatLngTuple];
 }
 
+type LegendHistogramMode = "standard" | "precision" | "hidden";
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -111,7 +113,7 @@ export class MapView {
   private rankedMetricSegments: RankedMetricSegment[] = [];
   private rankedMetricCursor = -1;
   private activeInfoPopup?: L.Popup;
-  private legendHistogramVisible = true;
+  private legendHistogramMode: LegendHistogramMode = "standard";
   private lastLegendEnabled = false;
   private lastLegendSettings?: VelocityViewSettings;
   private lastLegendColormap?: LegendColormap;
@@ -530,7 +532,11 @@ export class MapView {
     colormapColors: { r: number; g: number; b: number }[],
     velocityScaleInfo: SegmentColorScaleInfo | undefined
   ): string {
-    const binCount = 26;
+    const isPrecisionMode = this.legendHistogramMode === "precision";
+    const binCount = isPrecisionMode ? 140 : 26;
+    const histogramHeightRem = isPrecisionMode ? 4.1 : 3.0;
+    const histogramGapPx = isPrecisionMode ? 0 : 1;
+    const barRadiusStyle = isPrecisionMode ? "0" : "0.08rem 0.08rem 0 0";
     const counts = new Array<number>(binCount).fill(0);
 
     if (velocityScaleInfo && velocityScaleInfo.maxBaseValue > 0) {
@@ -552,13 +558,18 @@ export class MapView {
 
         return `<span class="velocity-legend-histogram-bar${
           count === 0 ? " is-empty" : ""
-        }" style="height:${barHeightPercent}%;background:${barColor};"></span>`;
+        }" style="height:${barHeightPercent}%;background:${barColor};border-radius:${barRadiusStyle};"></span>`;
       })
       .join("");
 
-    const tooltip = this.legendHistogramVisible ? "Hide histogram" : "Show histogram";
+    const tooltip =
+      this.legendHistogramMode === "standard"
+        ? "Switch to precision histogram"
+        : this.legendHistogramMode === "precision"
+          ? "Hide histogram"
+          : "Show standard histogram";
 
-    if (!this.legendHistogramVisible) {
+    if (this.legendHistogramMode === "hidden") {
       return `
         <button
           type="button"
@@ -568,7 +579,7 @@ export class MapView {
           aria-label="${tooltip}"
           aria-pressed="false"
         >
-          <span class="velocity-legend-histogram-collapsed-label">Histogram hidden · click to show</span>
+          <span class="velocity-legend-histogram-collapsed-label">Histogram hidden · click to cycle</span>
         </button>
       `;
     }
@@ -577,12 +588,15 @@ export class MapView {
       <button
         type="button"
         data-action="toggle-legend-histogram"
-        class="velocity-legend-histogram"
+        class="velocity-legend-histogram${isPrecisionMode ? " is-precision" : ""}"
         title="${tooltip}"
         aria-label="${tooltip}"
         aria-pressed="true"
       >
-        <span class="velocity-legend-histogram-bars">
+        <span
+          class="velocity-legend-histogram-bars"
+          style="grid-template-columns:repeat(${binCount}, minmax(0, 1fr)); gap:${histogramGapPx}px; height:${histogramHeightRem}rem;"
+        >
           ${bars}
         </span>
       </button>
@@ -623,7 +637,12 @@ export class MapView {
     );
     if (histogramToggle) {
       event.preventDefault();
-      this.legendHistogramVisible = !this.legendHistogramVisible;
+      this.legendHistogramMode =
+        this.legendHistogramMode === "standard"
+          ? "precision"
+          : this.legendHistogramMode === "precision"
+            ? "hidden"
+            : "standard";
       this.rerenderLegendFromLastContext();
       return;
     }

@@ -4,7 +4,7 @@
 Improve legend analytics with a toggleable aligned histogram.
 
 ## CURRENT_SUBTASK
-Add a colorful histogram above the legend scale, aligned to the colormap and toggleable by direct click.
+Add a 3-state histogram cycle in the legend (`standard` → `precision` → `hidden`) with denser bins in precision mode.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -60,7 +60,7 @@ Add a colorful histogram above the legend scale, aligned to the colormap and tog
   - Colormap selection is CSV-backed and loaded from discovered files.
   - Map legend now adapts to active metric (`Velocity` or `Acceleration`) including units.
   - Map legend includes `Next Peak`, cycling through highest metric segments and focusing each one.
-  - Map legend now includes a colorful, colormap-aligned histogram above the scale; click it to hide/show in place.
+  - Map legend includes a colorful, colormap-aligned histogram above the scale with click-cycle modes: `standard` (coarser bins), `precision` (many thin bins, no gaps), `hidden`.
   - While colorized segments are active on the editing track, edit markers switch to minimal ring-style markers so segment colors remain visible.
 - Segment info workflow:
   - `Info` mode lets users click timed colorized segments to open a Leaflet popup.

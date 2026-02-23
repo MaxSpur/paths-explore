@@ -689,7 +689,7 @@ body.is-drag-over::before {
   grid-template-columns: repeat(26, minmax(0, 1fr));
   align-items: end;
   gap: 1px;
-  height: 2.1rem;
+  height: 3rem;
   padding: 1px;
   background: #e8f1ec;
 }
@@ -712,6 +712,10 @@ body.is-drag-over::before {
   justify-content: center;
   min-height: 0.86rem;
   background: #f6faf8;
+}
+
+.velocity-legend-histogram.is-precision .velocity-legend-histogram-bars {
+  background: #edf5f0;
 }
 
 .velocity-legend-histogram-collapsed-label {
