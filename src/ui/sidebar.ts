@@ -117,9 +117,17 @@ export class SidebarView {
               <input data-action="edit-mode" type="radio" name="edit-mode" value="lasso" />
               <span class="edit-mode-title">Lasso</span>
             </label>
+            <label
+              class="edit-mode-card"
+              title="Info mode: click segments to inspect metric values and point details."
+              aria-label="Info mode: click segments to inspect metric values and point details."
+            >
+              <input data-action="edit-mode" type="radio" name="edit-mode" value="info" />
+              <span class="edit-mode-title">Info</span>
+            </label>
           </div>
           <p class="edit-hint">
-            Hold Shift to add to selection. Hold Space to temporarily pan the map in any mode.
+            Hold Shift to add to selection in Move/Marquee/Lasso. Use Info mode to inspect segments.
           </p>
         </div>
       </section>

@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Revise velocity controls and add acceleration-based segment coloring.
+Improve analysis workflow with peak-segment navigation and segment info inspection.
 
 ## CURRENT_SUBTASK
-Improve edit-mode behavior with colorized segments and visibility-aware edit toggling.
+Add legend `Next Peak` navigation and `Info` mode popups for per-segment metric details.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -41,7 +41,7 @@ Improve edit-mode behavior with colorized segments and visibility-aware edit tog
   - Delete/Backspace removes all selected points in one operation.
   - Point delete no longer triggers map auto-fit.
   - Leaflet default Shift box-zoom is disabled; custom Shift-drag marquee now selects points in the active editing track.
-  - Edit panel now exposes `move`, `marquee`, and `lasso` modes:
+  - Edit panel now exposes `move`, `marquee`, `lasso`, and `info` modes:
     - `move`: point dragging enabled; Shift-drag marquee still available.
     - `marquee`: drag on map creates marquee selection; Shift makes it additive.
     - `lasso`: freehand selection on map; Shift makes it additive.
@@ -59,13 +59,18 @@ Improve edit-mode behavior with colorized segments and visibility-aware edit tog
   - Acceleration mode colors segments by absolute acceleration magnitude (`m/s²`) from consecutive timed segment velocities.
   - Colormap selection is CSV-backed and loaded from discovered files.
   - Map legend now adapts to active metric (`Velocity` or `Acceleration`) including units.
+  - Map legend includes `Next Peak`, cycling through highest metric segments and focusing each one.
   - While colorized segments are active on the editing track, edit markers switch to minimal ring-style markers so segment colors remain visible.
+- Segment info workflow:
+  - `Info` mode lets users click timed colorized segments to open a Leaflet popup.
+  - Popup content includes metric value, segment index range, distance/duration (when available), and both endpoint coordinates/timestamps.
+  - Clicking empty map space closes the active popup.
 - Editing toggle behavior:
   - Starting edit on a hidden track now auto-enables that track’s visibility before entering edit mode.
   - Colormaps are now auto-discovered from `src/colormaps/*.csv` at build/dev time and listed automatically in the Velocity selector.
   - Fixed max control now supports 0..350 km/h and uses synchronized number + range slider inputs.
 - Sidebar editing UX:
-  - Edit modes are compact single-row pills (`Move`, `Marquee`, `Lasso`) with descriptions moved into hover tooltips.
+  - Edit modes are compact single-row pills (`Move`, `Marquee`, `Lasso`, `Info`) with descriptions moved into hover tooltips.
 - Import UX:
   - Dedicated drop box removed; users can now drag and drop files anywhere on the page.
   - Import section uses a compact hint line instead of a large drop target block.

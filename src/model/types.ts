@@ -1,5 +1,5 @@
 export type SupportedFormat = "gpx" | "kml" | "geojson";
-export type EditInteractionMode = "move" | "marquee" | "lasso";
+export type EditInteractionMode = "move" | "marquee" | "lasso" | "info";
 export type VelocityScaleMode = "auto" | "fixed";
 export type SegmentColorMetric = "velocity" | "acceleration";
 

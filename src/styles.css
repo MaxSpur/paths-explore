@@ -165,7 +165,7 @@ input {
 
 .edit-mode-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.45rem;
   margin-top: 0.55rem;
 }
@@ -689,6 +689,78 @@ body.is-drag-over::before {
   margin-top: 0.25rem;
   font-size: 0.72rem;
   color: #4a5f57;
+}
+
+.velocity-legend-actions {
+  margin-top: 0.45rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.velocity-legend-cycle-btn {
+  border: 1px solid #bcc9c1;
+  background: #ffffff;
+  border-radius: 0.45rem;
+  padding: 0.2rem 0.42rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #1c342c;
+  cursor: pointer;
+}
+
+.velocity-legend-cycle-btn:hover:not(:disabled) {
+  border-color: #20715e;
+}
+
+.velocity-legend-cycle-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.velocity-legend-cycle-status {
+  font-size: 0.72rem;
+  color: #3a554b;
+  min-width: 2.2rem;
+  text-align: right;
+}
+
+.segment-info-popup .leaflet-popup-content-wrapper {
+  border-radius: 0.55rem;
+}
+
+.segment-info-popup .leaflet-popup-content {
+  margin: 0.5rem 0.62rem;
+}
+
+.segment-info-popup-content {
+  min-width: 220px;
+  font-size: 0.76rem;
+  color: #13231d;
+}
+
+.segment-info-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+}
+
+.segment-info-metric {
+  margin-bottom: 0.3rem;
+}
+
+.segment-info-meta {
+  color: #39544a;
+  line-height: 1.35;
+  margin-bottom: 0.3rem;
+}
+
+.segment-info-points {
+  border-top: 1px dashed #ced8d3;
+  padding-top: 0.3rem;
+  color: #2d463e;
+  line-height: 1.35;
 }
 
 @media (max-width: 960px) {

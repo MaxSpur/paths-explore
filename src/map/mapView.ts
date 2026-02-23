@@ -59,6 +59,23 @@ interface LegendColormap {
   colors: { r: number; g: number; b: number }[];
 }
 
+interface RankedMetricSegment {
+  trackId: string;
+  trackName: string;
+  startIndex: number;
+  endIndex: number;
+  startPoint: Track["points"][number];
+  endPoint: Track["points"][number];
+  metric: SegmentColorMetric;
+  metricLabel: string;
+  baseValue: number;
+  displayValue: number;
+  unitLabel: string;
+  distanceMeters?: number;
+  durationSeconds?: number;
+  latLngs: [L.LatLngTuple, L.LatLngTuple];
+}
+
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
     return false;
@@ -91,6 +108,9 @@ export class MapView {
   private isHoveringEditablePoint = false;
   private pointerX = 0;
   private pointerY = 0;
+  private rankedMetricSegments: RankedMetricSegment[] = [];
+  private rankedMetricCursor = -1;
+  private activeInfoPopup?: L.Popup;
 
   constructor(container: HTMLElement, callbacks: MapViewCallbacks) {
     this.callbacks = callbacks;
@@ -116,6 +136,7 @@ export class MapView {
       const legend = L.DomUtil.create("div", "velocity-legend is-hidden") as HTMLDivElement;
       L.DomEvent.disableClickPropagation(legend);
       L.DomEvent.disableScrollPropagation(legend);
+      legend.addEventListener("click", this.onLegendClick);
       this.velocityLegendElement = legend;
       return legend;
     };
@@ -131,8 +152,10 @@ export class MapView {
         return;
       }
 
+      this.clearInfoPopup();
       this.callbacks.onMapBackgroundClick?.();
     });
+    this.map.on("popupclose", this.onPopupClose);
 
     this.map.on("mousedown", this.onMapMouseDown);
     this.map.getContainer().addEventListener("mouseenter", this.onMapMouseEnter);
@@ -152,6 +175,7 @@ export class MapView {
     this.activeEditingTrackId = options.editingTrackId;
     this.activeEditMode = options.editMode ?? "move";
     this.isHoveringEditablePoint = false;
+    this.clearInfoPopup();
     this.resetDragState();
     this.resetMarqueeSelection();
     this.resetLassoSelection();
@@ -167,7 +191,7 @@ export class MapView {
       renderVelocity && velocitySettings
         ? computeVelocityScaleInfo(velocityScaleTracks, velocitySettings)
         : undefined;
-    this.updateVelocityLegend(renderVelocity, velocitySettings, colormap, velocityScaleInfo);
+    const rankedSegments: RankedMetricSegment[] = [];
 
     // Draw bottom-to-top so the first track in the sidebar list appears on top.
     for (const track of [...tracks].reverse()) {
@@ -184,7 +208,8 @@ export class MapView {
               lineCoords,
               velocitySettings?.metric ?? "velocity",
               colormap?.colors ?? [],
-              velocityScaleInfo
+              velocityScaleInfo,
+              rankedSegments
             )
           : L.polyline(lineCoords, {
               color: track.color,
@@ -230,13 +255,17 @@ export class MapView {
               : "#ffffff",
           fillColor: useMinimalEditingMarkers ? "#ffffff" : track.color,
           fillOpacity: useMinimalEditingMarkers ? (isSelected ? 0.82 : 0) : 1,
-          interactive: true
+          interactive: this.activeEditMode !== "info"
         });
 
         markerByPointId.set(point.id, marker);
         indexByPointId.set(point.id, pointIndex);
 
         marker.on("click", (event) => {
+          if (this.activeEditMode === "info") {
+            return;
+          }
+
           if (this.isSpacePressed) {
             return;
           }
@@ -289,6 +318,8 @@ export class MapView {
       this.fitVisibleTracks(tracks);
     }
 
+    this.setRankedMetricSegments(rankedSegments);
+    this.updateVelocityLegend(renderVelocity, velocitySettings, colormap, velocityScaleInfo);
     this.updateCursorClass();
   }
 
@@ -323,7 +354,8 @@ export class MapView {
     lineCoords: L.LatLngExpression[],
     metric: SegmentColorMetric,
     colormapColors: { r: number; g: number; b: number }[],
-    velocityScaleInfo?: SegmentColorScaleInfo
+    velocityScaleInfo: SegmentColorScaleInfo | undefined,
+    rankedSegments: RankedMetricSegment[]
   ): L.Polyline {
     const hiddenPolyline = L.polyline(lineCoords, {
       color: "#000000",
@@ -332,7 +364,11 @@ export class MapView {
       interactive: false
     });
 
-    const timedSegmentsByStart =
+    const velocitySegments = computeTrackSegmentVelocities(track);
+    const velocitySegmentsByStart = new Map(
+      velocitySegments.map((segment) => [segment.startIndex, segment])
+    );
+    const metricValuesByStart =
       metric === "acceleration"
         ? new Map(
             computeTrackSegmentAccelerations(track).map((segment) => [
@@ -340,26 +376,25 @@ export class MapView {
               segment.metersPerSecondSquared
             ])
           )
-        : new Map(
-            computeTrackSegmentVelocities(track).map((segment) => [
-              segment.startIndex,
-              segment.metersPerSecond
-            ])
-          );
+        : new Map(velocitySegments.map((segment) => [segment.startIndex, segment.metersPerSecond]));
+    const metricLabel = metric === "acceleration" ? "Acceleration" : "Velocity";
+    const unitLabel = metric === "acceleration" ? "m/s²" : "km/h";
+    const enableSegmentInfoClick = this.activeEditMode === "info";
 
     for (let idx = 0; idx < track.points.length - 1; idx += 1) {
       const start = track.points[idx];
       const end = track.points[idx + 1];
-      const timedVelocity = timedSegmentsByStart.get(idx);
+      const metricValue = metricValuesByStart.get(idx);
+      const velocitySegment = velocitySegmentsByStart.get(idx);
 
       const hasVelocity =
-        timedVelocity !== undefined &&
+        metricValue !== undefined &&
         velocityScaleInfo !== undefined &&
         velocityScaleInfo.maxBaseValue > 0;
 
       const normalizedVelocity =
-        hasVelocity && timedVelocity !== undefined && velocityScaleInfo
-          ? normalizeVelocity(timedVelocity, velocityScaleInfo)
+        hasVelocity && metricValue !== undefined && velocityScaleInfo
+          ? normalizeVelocity(metricValue, velocityScaleInfo)
           : 0;
 
       const segmentColor =
@@ -378,11 +413,45 @@ export class MapView {
           color: segmentColor,
           weight: 5,
           opacity: 1,
-          interactive: false,
+          interactive: enableSegmentInfoClick && metricValue !== undefined,
           lineCap: "round",
           lineJoin: "round"
         }
       );
+
+      if (metricValue !== undefined) {
+        const displayValue =
+          metric === "acceleration" ? metricValue : metricValue * 3.6;
+        const segmentInfo: RankedMetricSegment = {
+          trackId: track.id,
+          trackName: track.name,
+          startIndex: idx,
+          endIndex: idx + 1,
+          startPoint: start,
+          endPoint: end,
+          metric,
+          metricLabel,
+          baseValue: metricValue,
+          displayValue,
+          unitLabel,
+          distanceMeters: velocitySegment
+            ? velocitySegment.metersPerSecond * velocitySegment.deltaSeconds
+            : undefined,
+          durationSeconds: velocitySegment?.deltaSeconds,
+          latLngs: [
+            [start.lat, start.lng],
+            [end.lat, end.lng]
+          ]
+        };
+        rankedSegments.push(segmentInfo);
+
+        if (enableSegmentInfoClick) {
+          segment.on("click", (event: L.LeafletMouseEvent) => {
+            L.DomEvent.stopPropagation(event);
+            this.openSegmentInfoPopup(segmentInfo);
+          });
+        }
+      }
 
       this.layerGroup.addLayer(segment);
     }
@@ -403,6 +472,7 @@ export class MapView {
     if (!enabled || !settings || !colormap) {
       this.velocityLegendElement.classList.add("is-hidden");
       this.velocityLegendElement.innerHTML = "";
+      this.rankedMetricCursor = -1;
       return;
     }
 
@@ -418,6 +488,8 @@ export class MapView {
       maxDisplayValue <= 0
         ? "No timed segments available."
         : `Current max: ${Math.round(maxDisplayValue * 10) / 10} ${unitLabel}`;
+    const currentRank = this.rankedMetricCursor >= 0 ? this.rankedMetricCursor + 1 : 0;
+    const totalRanks = this.rankedMetricSegments.length;
 
     this.velocityLegendElement.classList.remove("is-hidden");
     this.velocityLegendElement.innerHTML = `
@@ -428,6 +500,17 @@ export class MapView {
       } ${unitLabel}</span></div>
       <div class="velocity-legend-note">${scaleLabel}</div>
       <div class="velocity-legend-note">${availability}</div>
+      <div class="velocity-legend-actions">
+        <button
+          type="button"
+          data-action="cycle-top-segment"
+          class="velocity-legend-cycle-btn"
+          ${totalRanks === 0 ? "disabled" : ""}
+        >
+          Next Peak
+        </button>
+        <span class="velocity-legend-cycle-status">${currentRank}/${totalRanks}</span>
+      </div>
     `;
   }
 
@@ -446,6 +529,135 @@ export class MapView {
     }
 
     return `linear-gradient(90deg, ${stops.join(", ")})`;
+  }
+
+  private setRankedMetricSegments(segments: RankedMetricSegment[]): void {
+    this.rankedMetricSegments = [...segments].sort((a, b) => b.baseValue - a.baseValue);
+    this.rankedMetricCursor = -1;
+    this.updateLegendCycleStatus();
+  }
+
+  private onLegendClick = (event: MouseEvent): void => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const button = target.closest<HTMLButtonElement>('button[data-action="cycle-top-segment"]');
+    if (!button) {
+      return;
+    }
+
+    event.preventDefault();
+    this.focusNextTopSegment();
+  };
+
+  private onPopupClose = (event: L.PopupEvent): void => {
+    if (this.activeInfoPopup && event.popup === this.activeInfoPopup) {
+      this.activeInfoPopup = undefined;
+    }
+  };
+
+  private focusNextTopSegment(): void {
+    if (this.rankedMetricSegments.length === 0) {
+      return;
+    }
+
+    this.rankedMetricCursor = (this.rankedMetricCursor + 1) % this.rankedMetricSegments.length;
+    const segment = this.rankedMetricSegments[this.rankedMetricCursor];
+    const bounds = L.latLngBounds(segment.latLngs);
+    this.map.fitBounds(bounds.pad(3));
+    this.openSegmentInfoPopup(segment);
+    this.updateLegendCycleStatus();
+  }
+
+  private openSegmentInfoPopup(segment: RankedMetricSegment): void {
+    const midpoint = L.latLng(
+      (segment.startPoint.lat + segment.endPoint.lat) / 2,
+      (segment.startPoint.lng + segment.endPoint.lng) / 2
+    );
+
+    const formatPoint = (point: Track["points"][number]): string =>
+      `${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}`;
+    const durationText =
+      segment.durationSeconds !== undefined ? `${segment.durationSeconds.toFixed(1)} s` : "n/a";
+    const distanceText =
+      segment.distanceMeters !== undefined ? `${segment.distanceMeters.toFixed(1)} m` : "n/a";
+
+    const popupHtml = `
+      <div class="segment-info-popup-content">
+        <div class="segment-info-title">${this.escapeHtml(segment.trackName)}</div>
+        <div class="segment-info-metric">
+          ${segment.metricLabel}: <strong>${segment.displayValue.toFixed(2)} ${segment.unitLabel}</strong>
+        </div>
+        <div class="segment-info-meta">
+          Segment: ${segment.startIndex + 1} → ${segment.endIndex + 1}<br />
+          Distance: ${distanceText}<br />
+          Duration: ${durationText}
+        </div>
+        <div class="segment-info-points">
+          <div><strong>P${segment.startIndex + 1}</strong>: ${formatPoint(segment.startPoint)}${
+      segment.startPoint.time ? ` (${this.escapeHtml(segment.startPoint.time)})` : ""
+    }</div>
+          <div><strong>P${segment.endIndex + 1}</strong>: ${formatPoint(segment.endPoint)}${
+      segment.endPoint.time ? ` (${this.escapeHtml(segment.endPoint.time)})` : ""
+    }</div>
+        </div>
+      </div>
+    `;
+
+    this.clearInfoPopup();
+    const popup = L.popup({
+      closeButton: true,
+      autoClose: true,
+      closeOnClick: false,
+      autoPan: true,
+      className: "segment-info-popup"
+    })
+      .setLatLng(midpoint)
+      .setContent(popupHtml);
+    popup.openOn(this.map);
+    this.activeInfoPopup = popup;
+  }
+
+  private clearInfoPopup(): void {
+    if (!this.activeInfoPopup) {
+      return;
+    }
+
+    this.map.closePopup(this.activeInfoPopup);
+    this.activeInfoPopup = undefined;
+  }
+
+  private updateLegendCycleStatus(): void {
+    if (!this.velocityLegendElement) {
+      return;
+    }
+
+    const status = this.velocityLegendElement.querySelector<HTMLElement>(".velocity-legend-cycle-status");
+    if (status) {
+      const currentRank = this.rankedMetricCursor >= 0 ? this.rankedMetricCursor + 1 : 0;
+      status.textContent = `${currentRank}/${this.rankedMetricSegments.length}`;
+    }
+
+    const button = this.velocityLegendElement.querySelector<HTMLButtonElement>(
+      'button[data-action="cycle-top-segment"]'
+    );
+    if (button) {
+      button.disabled = this.rankedMetricSegments.length === 0;
+    }
+  }
+
+  private escapeHtml(value: string): string {
+    const map: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    };
+
+    return value.replace(/[&<>"']/g, (char) => map[char]);
   }
 
   private startPointDrag(event: L.LeafletMouseEvent, context: DraggingPointContext): void {
@@ -563,7 +775,8 @@ export class MapView {
       return;
     }
 
-    const shouldStartMarquee = this.activeEditMode === "marquee" || shiftKey;
+    const shouldStartMarquee =
+      this.activeEditMode === "marquee" || (this.activeEditMode === "move" && shiftKey);
     if (!shouldStartMarquee) {
       return;
     }
@@ -838,8 +1051,9 @@ export class MapView {
     const container = this.map.getContainer();
     const isEditingTrack = Boolean(this.activeEditingTrackId);
     const wantsCrosshair =
-      isEditingTrack &&
-      (this.activeEditMode !== "move" || this.isHoveringEditablePoint) &&
+      (this.activeEditMode === "info" ||
+        (isEditingTrack &&
+          (this.activeEditMode !== "move" || this.isHoveringEditablePoint))) &&
       !this.isSpacePressed;
     const overlayMode = wantsCrosshair ? "crosshair" : "pan";
     const showCursorOverlay = this.isPointerInsideMap;
