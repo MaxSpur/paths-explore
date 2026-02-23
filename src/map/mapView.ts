@@ -77,6 +77,7 @@ interface RankedMetricSegment {
 }
 
 type LegendHistogramMode = "standard" | "precision" | "hidden";
+type LegendHistogramAxisMode = "lin-lin" | "lin-log" | "log-lin" | "log-log";
 interface LegendResizeContext {
   pointerId: number;
   startX: number;
@@ -89,9 +90,10 @@ interface LegendResizeContext {
 const DEFAULT_LEGEND_WIDTH_PX = 220;
 const DEFAULT_LEGEND_HEIGHT_PX = 200;
 const MIN_LEGEND_WIDTH_PX = 220;
-const MIN_LEGEND_HEIGHT_HIDDEN_PX = 170;
-const MIN_LEGEND_HEIGHT_STANDARD_PX = 222;
-const MIN_LEGEND_HEIGHT_PRECISION_PX = 238;
+const MIN_LEGEND_HEIGHT_HIDDEN_PX = 176;
+const MIN_LEGEND_HEIGHT_STANDARD_PX = 232;
+const MIN_LEGEND_HEIGHT_PRECISION_PX = 248;
+const HISTOGRAM_LOG_X_STRETCH = 45;
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -129,6 +131,7 @@ export class MapView {
   private rankedMetricCursor = -1;
   private activeInfoPopup?: L.Popup;
   private legendHistogramMode: LegendHistogramMode = "standard";
+  private legendHistogramAxisMode: LegendHistogramAxisMode = "lin-lin";
   private lastLegendEnabled = false;
   private lastLegendSettings?: VelocityViewSettings;
   private lastLegendColormap?: LegendColormap;
@@ -516,6 +519,7 @@ export class MapView {
     const metricLabel = velocityScaleInfo?.metricLabel ?? "Velocity";
     const gradient = this.buildLegendGradient(colormap.colors);
     const histogramMarkup = this.buildLegendHistogramMarkup(colormap.colors, velocityScaleInfo);
+    const axisModeControlMarkup = this.buildLegendAxisModeControlMarkup();
     const scaleLabel =
       settings.scaleMode === "fixed"
         ? `Fixed scale (max ${Math.max(0, Math.round(settings.fixedMax * 10) / 10)} ${unitLabel})`
@@ -536,7 +540,10 @@ export class MapView {
         title="Drag top-left corner to resize legend"
         aria-label="Resize legend"
       ></button>
-      <div class="velocity-legend-title">${metricLabel}</div>
+      <div class="velocity-legend-header">
+        <div class="velocity-legend-title">${metricLabel}</div>
+        ${axisModeControlMarkup}
+      </div>
       ${histogramMarkup}
       <div class="velocity-legend-bar" style="--legend-gradient: ${gradient};"></div>
       <div class="velocity-legend-scale"><span>0 ${unitLabel}</span><span>${
@@ -560,6 +567,82 @@ export class MapView {
     this.velocityLegendElement.classList.toggle("is-resizing", Boolean(this.legendResize));
   }
 
+  private buildLegendAxisModeControlMarkup(): string {
+    const options: { mode: LegendHistogramAxisMode; shortLabel: string; title: string }[] = [
+      { mode: "lin-lin", shortLabel: "L/L", title: "X linear, Y linear" },
+      { mode: "lin-log", shortLabel: "L/G", title: "X linear, Y logarithmic" },
+      { mode: "log-lin", shortLabel: "G/L", title: "X logarithmic, Y linear" },
+      { mode: "log-log", shortLabel: "G/G", title: "X logarithmic, Y logarithmic" }
+    ];
+
+    const buttons = options
+      .map(
+        ({ mode, shortLabel, title }) => `
+          <button
+            type="button"
+            data-action="set-legend-axis-mode"
+            data-axis-mode="${mode}"
+            class="velocity-legend-axis-btn${this.legendHistogramAxisMode === mode ? " is-active" : ""}"
+            title="${title}"
+            aria-label="${title}"
+            aria-pressed="${this.legendHistogramAxisMode === mode ? "true" : "false"}"
+          >
+            ${shortLabel}
+          </button>
+        `
+      )
+      .join("");
+
+    return `
+      <div class="velocity-legend-axis-toggle" role="group" aria-label="Histogram axis scaling">
+        <span class="velocity-legend-axis-caption">Axes</span>
+        <span class="velocity-legend-axis-row">
+          ${buttons}
+        </span>
+      </div>
+    `;
+  }
+
+  private getIsLegendLogX(): boolean {
+    return this.legendHistogramAxisMode === "log-lin" || this.legendHistogramAxisMode === "log-log";
+  }
+
+  private getIsLegendLogY(): boolean {
+    return this.legendHistogramAxisMode === "lin-log" || this.legendHistogramAxisMode === "log-log";
+  }
+
+  private transformHistogramX(value: number): number {
+    const clamped = Math.max(0, Math.min(1, value));
+    if (!this.getIsLegendLogX()) {
+      return clamped;
+    }
+
+    return Math.log1p(HISTOGRAM_LOG_X_STRETCH * clamped) / Math.log1p(HISTOGRAM_LOG_X_STRETCH);
+  }
+
+  private inverseTransformHistogramX(value: number): number {
+    const clamped = Math.max(0, Math.min(1, value));
+    if (!this.getIsLegendLogX()) {
+      return clamped;
+    }
+
+    return (
+      Math.exp(clamped * Math.log1p(HISTOGRAM_LOG_X_STRETCH)) - 1
+    ) / HISTOGRAM_LOG_X_STRETCH;
+  }
+
+  private normalizeHistogramY(count: number, peakCount: number): number {
+    if (peakCount <= 0 || count <= 0) {
+      return 0;
+    }
+
+    if (!this.getIsLegendLogY()) {
+      return count / peakCount;
+    }
+
+    return Math.log1p(count) / Math.log1p(peakCount);
+  }
+
   private buildLegendHistogramMarkup(
     colormapColors: { r: number; g: number; b: number }[],
     velocityScaleInfo: SegmentColorScaleInfo | undefined
@@ -574,7 +657,8 @@ export class MapView {
     if (velocityScaleInfo && velocityScaleInfo.maxBaseValue > 0) {
       for (const segment of this.rankedMetricSegments) {
         const normalizedValue = normalizeVelocity(segment.baseValue, velocityScaleInfo);
-        const bucketIndex = Math.min(binCount - 1, Math.floor(normalizedValue * binCount));
+        const transformedValue = this.transformHistogramX(normalizedValue);
+        const bucketIndex = Math.min(binCount - 1, Math.floor(transformedValue * binCount));
         counts[bucketIndex] += 1;
       }
     }
@@ -583,10 +667,13 @@ export class MapView {
     const bars = counts
       .map((count, index) => {
         const t = binCount === 1 ? 0.5 : index / (binCount - 1);
+        const colorSampleT = this.inverseTransformHistogramX(t);
         const barColor =
-          colormapColors.length > 0 ? sampleColormapColor(colormapColors, t) : "#1a4f9a";
+          colormapColors.length > 0 ? sampleColormapColor(colormapColors, colorSampleT) : "#1a4f9a";
         const barHeightPercent =
-          peakCount > 0 ? Math.max(7, Math.round((count / peakCount) * 1000) / 10) : 0;
+          peakCount > 0
+            ? Math.max(7, Math.round(this.normalizeHistogramY(count, peakCount) * 1000) / 10)
+            : 0;
 
         return `<span class="velocity-legend-histogram-bar${
           count === 0 ? " is-empty" : ""
@@ -813,6 +900,24 @@ export class MapView {
   private onLegendClick = (event: MouseEvent): void => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const axisModeButton = target.closest<HTMLButtonElement>(
+      'button[data-action="set-legend-axis-mode"]'
+    );
+    if (axisModeButton) {
+      event.preventDefault();
+      const nextMode = axisModeButton.dataset.axisMode;
+      if (
+        nextMode === "lin-lin" ||
+        nextMode === "lin-log" ||
+        nextMode === "log-lin" ||
+        nextMode === "log-log"
+      ) {
+        this.legendHistogramAxisMode = nextMode;
+        this.rerenderLegendFromLastContext();
+      }
       return;
     }
 

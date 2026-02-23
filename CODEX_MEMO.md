@@ -61,6 +61,8 @@ Completed: make legend height resizing drive histogram height (not whitespace be
   - Map legend now adapts to active metric (`Velocity` or `Acceleration`) including units.
   - Map legend includes `Next Peak`, cycling through highest metric segments and focusing each one.
   - Map legend includes a colorful, colormap-aligned histogram above the scale with click-cycle modes: `standard` (coarser bins), `precision` (many thin bins, no gaps), `hidden`.
+  - Legend histogram includes a compact single-row axis-mode toggle (`L/L`, `L/G`, `G/L`, `G/G`) for linear/log scaling on X and Y independently.
+  - X-axis log mode redistributes bins with a log transform while preserving colormap meaning via inverse sampling; Y-axis log mode scales bar heights with log(count).
   - Velocity legend can be resized by dragging its top-left corner; legend width drives histogram bin count in both `standard` and `precision` modes.
   - Histogram now also expands vertically with legend height; extra vertical space is consumed by the histogram instead of blank area below `Next Peak`.
   - Legend minimum height is now histogram-mode-aware (`hidden` < `standard` < `precision`) so controls like `Next Peak` remain visible.
