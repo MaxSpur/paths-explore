@@ -111,6 +111,11 @@ export class MapView {
   private rankedMetricSegments: RankedMetricSegment[] = [];
   private rankedMetricCursor = -1;
   private activeInfoPopup?: L.Popup;
+  private legendHistogramVisible = true;
+  private lastLegendEnabled = false;
+  private lastLegendSettings?: VelocityViewSettings;
+  private lastLegendColormap?: LegendColormap;
+  private lastLegendScaleInfo?: SegmentColorScaleInfo;
 
   constructor(container: HTMLElement, callbacks: MapViewCallbacks) {
     this.callbacks = callbacks;
@@ -465,6 +470,11 @@ export class MapView {
     colormap: LegendColormap | undefined,
     velocityScaleInfo: SegmentColorScaleInfo | undefined
   ): void {
+    this.lastLegendEnabled = enabled;
+    this.lastLegendSettings = settings;
+    this.lastLegendColormap = colormap;
+    this.lastLegendScaleInfo = velocityScaleInfo;
+
     if (!this.velocityLegendElement) {
       return;
     }
@@ -480,6 +490,7 @@ export class MapView {
     const unitLabel = velocityScaleInfo?.unitLabel ?? "";
     const metricLabel = velocityScaleInfo?.metricLabel ?? "Velocity";
     const gradient = this.buildLegendGradient(colormap.colors);
+    const histogramMarkup = this.buildLegendHistogramMarkup(colormap.colors, velocityScaleInfo);
     const scaleLabel =
       settings.scaleMode === "fixed"
         ? `Fixed scale (max ${Math.max(0, Math.round(settings.fixedMax * 10) / 10)} ${unitLabel})`
@@ -494,6 +505,7 @@ export class MapView {
     this.velocityLegendElement.classList.remove("is-hidden");
     this.velocityLegendElement.innerHTML = `
       <div class="velocity-legend-title">${metricLabel}</div>
+      ${histogramMarkup}
       <div class="velocity-legend-bar" style="--legend-gradient: ${gradient};"></div>
       <div class="velocity-legend-scale"><span>0 ${unitLabel}</span><span>${
         Math.round(maxDisplayValue * 10) / 10
@@ -511,6 +523,69 @@ export class MapView {
         </button>
         <span class="velocity-legend-cycle-status">${currentRank}/${totalRanks}</span>
       </div>
+    `;
+  }
+
+  private buildLegendHistogramMarkup(
+    colormapColors: { r: number; g: number; b: number }[],
+    velocityScaleInfo: SegmentColorScaleInfo | undefined
+  ): string {
+    const binCount = 26;
+    const counts = new Array<number>(binCount).fill(0);
+
+    if (velocityScaleInfo && velocityScaleInfo.maxBaseValue > 0) {
+      for (const segment of this.rankedMetricSegments) {
+        const normalizedValue = normalizeVelocity(segment.baseValue, velocityScaleInfo);
+        const bucketIndex = Math.min(binCount - 1, Math.floor(normalizedValue * binCount));
+        counts[bucketIndex] += 1;
+      }
+    }
+
+    const peakCount = counts.length > 0 ? Math.max(...counts) : 0;
+    const bars = counts
+      .map((count, index) => {
+        const t = binCount === 1 ? 0.5 : index / (binCount - 1);
+        const barColor =
+          colormapColors.length > 0 ? sampleColormapColor(colormapColors, t) : "#1a4f9a";
+        const barHeightPercent =
+          peakCount > 0 ? Math.max(7, Math.round((count / peakCount) * 1000) / 10) : 0;
+
+        return `<span class="velocity-legend-histogram-bar${
+          count === 0 ? " is-empty" : ""
+        }" style="height:${barHeightPercent}%;background:${barColor};"></span>`;
+      })
+      .join("");
+
+    const tooltip = this.legendHistogramVisible ? "Hide histogram" : "Show histogram";
+
+    if (!this.legendHistogramVisible) {
+      return `
+        <button
+          type="button"
+          data-action="toggle-legend-histogram"
+          class="velocity-legend-histogram is-collapsed"
+          title="${tooltip}"
+          aria-label="${tooltip}"
+          aria-pressed="false"
+        >
+          <span class="velocity-legend-histogram-collapsed-label">Histogram hidden · click to show</span>
+        </button>
+      `;
+    }
+
+    return `
+      <button
+        type="button"
+        data-action="toggle-legend-histogram"
+        class="velocity-legend-histogram"
+        title="${tooltip}"
+        aria-label="${tooltip}"
+        aria-pressed="true"
+      >
+        <span class="velocity-legend-histogram-bars">
+          ${bars}
+        </span>
+      </button>
     `;
   }
 
@@ -540,6 +615,16 @@ export class MapView {
   private onLegendClick = (event: MouseEvent): void => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const histogramToggle = target.closest<HTMLButtonElement>(
+      'button[data-action="toggle-legend-histogram"]'
+    );
+    if (histogramToggle) {
+      event.preventDefault();
+      this.legendHistogramVisible = !this.legendHistogramVisible;
+      this.rerenderLegendFromLastContext();
       return;
     }
 
@@ -646,6 +731,15 @@ export class MapView {
     if (button) {
       button.disabled = this.rankedMetricSegments.length === 0;
     }
+  }
+
+  private rerenderLegendFromLastContext(): void {
+    this.updateVelocityLegend(
+      this.lastLegendEnabled,
+      this.lastLegendSettings,
+      this.lastLegendColormap,
+      this.lastLegendScaleInfo
+    );
   }
 
   private escapeHtml(value: string): string {

@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Improve analysis workflow with peak-segment navigation and segment info inspection.
+Improve legend analytics with a toggleable aligned histogram.
 
 ## CURRENT_SUBTASK
-Add legend `Next Peak` navigation and `Info` mode popups for per-segment metric details.
+Add a colorful histogram above the legend scale, aligned to the colormap and toggleable by direct click.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -60,6 +60,7 @@ Add legend `Next Peak` navigation and `Info` mode popups for per-segment metric 
   - Colormap selection is CSV-backed and loaded from discovered files.
   - Map legend now adapts to active metric (`Velocity` or `Acceleration`) including units.
   - Map legend includes `Next Peak`, cycling through highest metric segments and focusing each one.
+  - Map legend now includes a colorful, colormap-aligned histogram above the scale; click it to hide/show in place.
   - While colorized segments are active on the editing track, edit markers switch to minimal ring-style markers so segment colors remain visible.
 - Segment info workflow:
   - `Info` mode lets users click timed colorized segments to open a Leaflet popup.
