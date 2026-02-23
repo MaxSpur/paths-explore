@@ -87,9 +87,9 @@ interface LegendResizeContext {
   wasMapDraggingEnabled: boolean;
 }
 
-const DEFAULT_LEGEND_WIDTH_PX = 220;
+const DEFAULT_LEGEND_WIDTH_PX = 248;
 const DEFAULT_LEGEND_HEIGHT_PX = 200;
-const MIN_LEGEND_WIDTH_PX = 220;
+const MIN_LEGEND_WIDTH_PX = 248;
 const MIN_LEGEND_HEIGHT_HIDDEN_PX = 176;
 const MIN_LEGEND_HEIGHT_STANDARD_PX = 232;
 const MIN_LEGEND_HEIGHT_PRECISION_PX = 248;
@@ -568,6 +568,10 @@ export class MapView {
   }
 
   private buildLegendAxisModeControlMarkup(): string {
+    if (this.legendHistogramMode === "hidden") {
+      return "";
+    }
+
     const options: { mode: LegendHistogramAxisMode; shortLabel: string; title: string }[] = [
       { mode: "lin-lin", shortLabel: "L/L", title: "X linear, Y linear" },
       { mode: "lin-log", shortLabel: "L/G", title: "X linear, Y logarithmic" },
