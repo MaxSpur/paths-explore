@@ -728,7 +728,10 @@ body.is-drag-over::before {
 }
 
 .velocity-legend-histogram {
+  display: block;
+  flex: 1 1 auto;
   width: 100%;
+  min-height: var(--legend-hist-min-height, 3rem);
   margin: 0 0 0.24rem;
   border: 1px solid #2f3f37;
   border-radius: 0.42rem;
@@ -746,8 +749,9 @@ body.is-drag-over::before {
   display: grid;
   grid-template-columns: repeat(26, minmax(0, 1fr));
   align-items: end;
-  gap: 1px;
-  height: 3rem;
+  gap: var(--legend-hist-gap, 1px);
+  min-height: var(--legend-hist-min-height, 3rem);
+  height: 100%;
   padding: 1px;
   background: #e8f1ec;
 }
@@ -766,6 +770,7 @@ body.is-drag-over::before {
 
 .velocity-legend-histogram.is-collapsed {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   min-height: 0.86rem;

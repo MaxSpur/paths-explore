@@ -89,7 +89,9 @@ interface LegendResizeContext {
 const DEFAULT_LEGEND_WIDTH_PX = 220;
 const DEFAULT_LEGEND_HEIGHT_PX = 200;
 const MIN_LEGEND_WIDTH_PX = 220;
-const MIN_LEGEND_HEIGHT_PX = 170;
+const MIN_LEGEND_HEIGHT_HIDDEN_PX = 170;
+const MIN_LEGEND_HEIGHT_STANDARD_PX = 222;
+const MIN_LEGEND_HEIGHT_PRECISION_PX = 238;
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -564,7 +566,7 @@ export class MapView {
   ): string {
     const isPrecisionMode = this.legendHistogramMode === "precision";
     const binCount = this.getHistogramBinCount(isPrecisionMode);
-    const histogramHeightRem = isPrecisionMode ? 4.1 : 3.0;
+    const histogramMinHeightRem = isPrecisionMode ? 4.1 : 3.0;
     const histogramGapPx = isPrecisionMode ? 0 : 1;
     const barRadiusStyle = isPrecisionMode ? "0" : "0.08rem 0.08rem 0 0";
     const counts = new Array<number>(binCount).fill(0);
@@ -619,13 +621,14 @@ export class MapView {
         type="button"
         data-action="toggle-legend-histogram"
         class="velocity-legend-histogram${isPrecisionMode ? " is-precision" : ""}"
+        style="--legend-hist-gap:${histogramGapPx}px; --legend-hist-min-height:${histogramMinHeightRem}rem;"
         title="${tooltip}"
         aria-label="${tooltip}"
         aria-pressed="true"
       >
         <span
           class="velocity-legend-histogram-bars"
-          style="grid-template-columns:repeat(${binCount}, minmax(0, 1fr)); gap:${histogramGapPx}px; height:${histogramHeightRem}rem;"
+          style="grid-template-columns:repeat(${binCount}, minmax(0, 1fr));"
         >
           ${bars}
         </span>
@@ -673,11 +676,30 @@ export class MapView {
       return;
     }
 
+    const minHeight = this.getLegendMinimumHeightPx();
     const width = this.legendHasCustomSize ? this.legendWidthPx : DEFAULT_LEGEND_WIDTH_PX;
-    const height = this.legendHasCustomSize ? this.legendHeightPx : DEFAULT_LEGEND_HEIGHT_PX;
+    const requestedHeight = this.legendHasCustomSize ? this.legendHeightPx : DEFAULT_LEGEND_HEIGHT_PX;
+    const height = Math.max(minHeight, requestedHeight);
 
     this.velocityLegendElement.style.width = `${Math.round(width)}px`;
+    this.velocityLegendElement.style.minHeight = `${Math.round(minHeight)}px`;
     this.velocityLegendElement.style.height = `${Math.round(height)}px`;
+
+    if (this.legendHasCustomSize) {
+      this.legendHeightPx = height;
+    }
+  }
+
+  private getLegendMinimumHeightPx(): number {
+    if (this.legendHistogramMode === "hidden") {
+      return MIN_LEGEND_HEIGHT_HIDDEN_PX;
+    }
+
+    if (this.legendHistogramMode === "precision") {
+      return MIN_LEGEND_HEIGHT_PRECISION_PX;
+    }
+
+    return MIN_LEGEND_HEIGHT_STANDARD_PX;
   }
 
   private onLegendPointerDown = (event: PointerEvent): void => {
@@ -699,8 +721,9 @@ export class MapView {
     event.stopPropagation();
 
     const legendRect = this.velocityLegendElement.getBoundingClientRect();
+    const minHeight = this.getLegendMinimumHeightPx();
     this.legendWidthPx = Math.max(MIN_LEGEND_WIDTH_PX, Math.round(legendRect.width));
-    this.legendHeightPx = Math.max(MIN_LEGEND_HEIGHT_PX, Math.round(legendRect.height));
+    this.legendHeightPx = Math.max(minHeight, Math.round(legendRect.height));
     this.legendHasCustomSize = true;
     this.legendResize = {
       pointerId: event.pointerId,
@@ -734,12 +757,13 @@ export class MapView {
     event.stopPropagation();
 
     const mapRect = this.map.getContainer().getBoundingClientRect();
+    const minHeight = this.getLegendMinimumHeightPx();
     const maxWidth = Math.max(MIN_LEGEND_WIDTH_PX, Math.floor(mapRect.width - 24));
-    const maxHeight = Math.max(MIN_LEGEND_HEIGHT_PX, Math.floor(mapRect.height - 24));
+    const maxHeight = Math.max(minHeight, Math.floor(mapRect.height - 24));
     const widthFromDrag = this.legendResize.startWidth - (event.clientX - this.legendResize.startX);
     const heightFromDrag = this.legendResize.startHeight - (event.clientY - this.legendResize.startY);
     const nextWidth = Math.round(Math.min(maxWidth, Math.max(MIN_LEGEND_WIDTH_PX, widthFromDrag)));
-    const nextHeight = Math.round(Math.min(maxHeight, Math.max(MIN_LEGEND_HEIGHT_PX, heightFromDrag)));
+    const nextHeight = Math.round(Math.min(maxHeight, Math.max(minHeight, heightFromDrag)));
 
     if (nextWidth === this.legendWidthPx && nextHeight === this.legendHeightPx) {
       return;

@@ -4,7 +4,7 @@
 Improve velocity legend usability with resize support and persistent view settings.
 
 ## CURRENT_SUBTASK
-Completed: add legend corner-resize + width-adaptive histogram bins, and restore velocity colormap/settings across reloads.
+Completed: make legend height resizing drive histogram height (not whitespace below actions), while keeping width-adaptive bins and persistent velocity settings.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -62,6 +62,8 @@ Completed: add legend corner-resize + width-adaptive histogram bins, and restore
   - Map legend includes `Next Peak`, cycling through highest metric segments and focusing each one.
   - Map legend includes a colorful, colormap-aligned histogram above the scale with click-cycle modes: `standard` (coarser bins), `precision` (many thin bins, no gaps), `hidden`.
   - Velocity legend can be resized by dragging its top-left corner; legend width drives histogram bin count in both `standard` and `precision` modes.
+  - Histogram now also expands vertically with legend height; extra vertical space is consumed by the histogram instead of blank area below `Next Peak`.
+  - Legend minimum height is now histogram-mode-aware (`hidden` < `standard` < `precision`) so controls like `Next Peak` remain visible.
   - Velocity UI settings are persisted in `localStorage` (`path-segments-velocity-settings-v1`) and restored on reload, including selected colormap.
   - While colorized segments are active on the editing track, edit markers switch to minimal ring-style markers so segment colors remain visible.
 - Segment info workflow:
