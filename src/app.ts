@@ -3,7 +3,7 @@ import { createTrackPersistence } from "./io/persistence";
 import { serializeTrack } from "./io/serializers";
 import { MapView } from "./map/mapView";
 import { computeVelocityScaleInfo } from "./map/velocity";
-import { DEFAULT_COLORMAP_ID } from "./colormaps";
+import { DEFAULT_COLORMAP_ID, getColormapById } from "./colormaps";
 import { TrackStore } from "./model/store";
 import type { EditInteractionMode, ImportSummary, VelocityViewSettings } from "./model/types";
 import { bindKeyboardEditor } from "./ui/editor";
@@ -11,6 +11,74 @@ import { SidebarView } from "./ui/sidebar";
 
 interface RenderOptions {
   fitToVisible?: boolean;
+}
+
+const VELOCITY_SETTINGS_STORAGE_KEY = "path-segments-velocity-settings-v1";
+const VELOCITY_MAX_LIMIT = 350;
+
+const DEFAULT_VELOCITY_SETTINGS: VelocityViewSettings = {
+  enabled: false,
+  metric: "velocity",
+  scaleMode: "auto",
+  fixedMax: 60,
+  colormapId: DEFAULT_COLORMAP_ID
+};
+
+function clampVelocityFixedMax(value: number): number {
+  return Math.max(0, Math.min(VELOCITY_MAX_LIMIT, value));
+}
+
+function normalizeVelocitySettings(
+  settings: Partial<VelocityViewSettings> | null | undefined
+): VelocityViewSettings {
+  const metric = settings?.metric === "acceleration" ? "acceleration" : "velocity";
+  const scaleMode = settings?.scaleMode === "fixed" ? "fixed" : "auto";
+  const rawFixedMax =
+    typeof settings?.fixedMax === "number"
+      ? settings.fixedMax
+      : Number.parseFloat(String(settings?.fixedMax ?? Number.NaN));
+  const fixedMax = Number.isFinite(rawFixedMax)
+    ? clampVelocityFixedMax(rawFixedMax)
+    : DEFAULT_VELOCITY_SETTINGS.fixedMax;
+  const colormapId = getColormapById(String(settings?.colormapId ?? DEFAULT_COLORMAP_ID)).id;
+
+  return {
+    enabled: Boolean(settings?.enabled),
+    metric,
+    scaleMode,
+    fixedMax,
+    colormapId
+  };
+}
+
+function loadVelocitySettings(): VelocityViewSettings {
+  if (typeof localStorage === "undefined") {
+    return { ...DEFAULT_VELOCITY_SETTINGS };
+  }
+
+  try {
+    const raw = localStorage.getItem(VELOCITY_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return { ...DEFAULT_VELOCITY_SETTINGS };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<VelocityViewSettings>;
+    return normalizeVelocitySettings(parsed);
+  } catch {
+    return { ...DEFAULT_VELOCITY_SETTINGS };
+  }
+}
+
+function saveVelocitySettings(settings: VelocityViewSettings): void {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+
+  try {
+    localStorage.setItem(VELOCITY_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Ignore persistence failures (quota/private mode).
+  }
 }
 
 function downloadTrackFile(fileName: string, mimeType: string, content: string): void {
@@ -42,15 +110,15 @@ export function createApp(root: HTMLElement): void {
   const persistence = createTrackPersistence();
   let latestSummary: ImportSummary | undefined;
   let editMode: EditInteractionMode = "move";
-  let velocitySettings: VelocityViewSettings = {
-    enabled: false,
-    metric: "velocity",
-    scaleMode: "auto",
-    fixedMax: 60,
-    colormapId: DEFAULT_COLORMAP_ID
-  };
+  let velocitySettings: VelocityViewSettings = loadVelocitySettings();
+  saveVelocitySettings(velocitySettings);
   let sidebar: SidebarView;
   let mapView: MapView;
+
+  const setVelocitySettings = (next: VelocityViewSettings): void => {
+    velocitySettings = normalizeVelocitySettings(next);
+    saveVelocitySettings(velocitySettings);
+  };
 
   const render = (options: RenderOptions = {}): void => {
     const state = store.getState();
@@ -160,26 +228,26 @@ export function createApp(root: HTMLElement): void {
     },
     onVelocityModeChange: (mode) => {
       if (mode === "off") {
-        velocitySettings = {
+        setVelocitySettings({
           ...velocitySettings,
           enabled: false
-        };
+        });
         render();
         return;
       }
 
-      velocitySettings = {
+      setVelocitySettings({
         ...velocitySettings,
         enabled: true,
         metric: mode
-      };
+      });
       render();
     },
     onVelocityScaleModeChange: (mode) => {
-      velocitySettings = {
+      setVelocitySettings({
         ...velocitySettings,
         scaleMode: mode
-      };
+      });
       render();
     },
     onVelocityFixedMaxChange: (maxValue) => {
@@ -187,17 +255,17 @@ export function createApp(root: HTMLElement): void {
         return;
       }
 
-      velocitySettings = {
+      setVelocitySettings({
         ...velocitySettings,
-        fixedMax: Math.max(0, Math.min(350, maxValue))
-      };
+        fixedMax: clampVelocityFixedMax(maxValue)
+      });
       render();
     },
     onVelocityColormapChange: (colormapId) => {
-      velocitySettings = {
+      setVelocitySettings({
         ...velocitySettings,
         colormapId
-      };
+      });
       render();
     }
   });

@@ -77,6 +77,19 @@ interface RankedMetricSegment {
 }
 
 type LegendHistogramMode = "standard" | "precision" | "hidden";
+interface LegendResizeContext {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startWidth: number;
+  startHeight: number;
+  wasMapDraggingEnabled: boolean;
+}
+
+const DEFAULT_LEGEND_WIDTH_PX = 220;
+const DEFAULT_LEGEND_HEIGHT_PX = 200;
+const MIN_LEGEND_WIDTH_PX = 220;
+const MIN_LEGEND_HEIGHT_PX = 170;
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -118,6 +131,10 @@ export class MapView {
   private lastLegendSettings?: VelocityViewSettings;
   private lastLegendColormap?: LegendColormap;
   private lastLegendScaleInfo?: SegmentColorScaleInfo;
+  private legendResize?: LegendResizeContext;
+  private legendWidthPx = DEFAULT_LEGEND_WIDTH_PX;
+  private legendHeightPx = DEFAULT_LEGEND_HEIGHT_PX;
+  private legendHasCustomSize = false;
 
   constructor(container: HTMLElement, callbacks: MapViewCallbacks) {
     this.callbacks = callbacks;
@@ -144,6 +161,7 @@ export class MapView {
       L.DomEvent.disableClickPropagation(legend);
       L.DomEvent.disableScrollPropagation(legend);
       legend.addEventListener("click", this.onLegendClick);
+      legend.addEventListener("pointerdown", this.onLegendPointerDown);
       this.velocityLegendElement = legend;
       return legend;
     };
@@ -482,6 +500,9 @@ export class MapView {
     }
 
     if (!enabled || !settings || !colormap) {
+      if (this.legendResize) {
+        this.onLegendPointerUp(undefined, false);
+      }
       this.velocityLegendElement.classList.add("is-hidden");
       this.velocityLegendElement.innerHTML = "";
       this.rankedMetricCursor = -1;
@@ -506,6 +527,13 @@ export class MapView {
 
     this.velocityLegendElement.classList.remove("is-hidden");
     this.velocityLegendElement.innerHTML = `
+      <button
+        type="button"
+        data-action="resize-legend"
+        class="velocity-legend-resize-handle"
+        title="Drag top-left corner to resize legend"
+        aria-label="Resize legend"
+      ></button>
       <div class="velocity-legend-title">${metricLabel}</div>
       ${histogramMarkup}
       <div class="velocity-legend-bar" style="--legend-gradient: ${gradient};"></div>
@@ -526,6 +554,8 @@ export class MapView {
         <span class="velocity-legend-cycle-status">${currentRank}/${totalRanks}</span>
       </div>
     `;
+    this.applyLegendSizeStyles();
+    this.velocityLegendElement.classList.toggle("is-resizing", Boolean(this.legendResize));
   }
 
   private buildLegendHistogramMarkup(
@@ -533,7 +563,7 @@ export class MapView {
     velocityScaleInfo: SegmentColorScaleInfo | undefined
   ): string {
     const isPrecisionMode = this.legendHistogramMode === "precision";
-    const binCount = isPrecisionMode ? 140 : 26;
+    const binCount = this.getHistogramBinCount(isPrecisionMode);
     const histogramHeightRem = isPrecisionMode ? 4.1 : 3.0;
     const histogramGapPx = isPrecisionMode ? 0 : 1;
     const barRadiusStyle = isPrecisionMode ? "0" : "0.08rem 0.08rem 0 0";
@@ -603,6 +633,18 @@ export class MapView {
     `;
   }
 
+  private getHistogramBinCount(isPrecisionMode: boolean): number {
+    const renderedWidth = this.velocityLegendElement?.getBoundingClientRect().width ?? 0;
+    const legendWidth = renderedWidth > 0 ? renderedWidth : this.legendWidthPx;
+    const usableWidth = Math.max(140, legendWidth - 18);
+
+    if (isPrecisionMode) {
+      return Math.max(96, Math.min(420, Math.round(usableWidth / 1.45)));
+    }
+
+    return Math.max(20, Math.min(120, Math.round(usableWidth / 7.1)));
+  }
+
   private buildLegendGradient(colors: { r: number; g: number; b: number }[]): string {
     if (colors.length === 0) {
       return "linear-gradient(90deg, rgb(27, 79, 154), rgb(245, 210, 50))";
@@ -625,6 +667,124 @@ export class MapView {
     this.rankedMetricCursor = -1;
     this.updateLegendCycleStatus();
   }
+
+  private applyLegendSizeStyles(): void {
+    if (!this.velocityLegendElement) {
+      return;
+    }
+
+    const width = this.legendHasCustomSize ? this.legendWidthPx : DEFAULT_LEGEND_WIDTH_PX;
+    const height = this.legendHasCustomSize ? this.legendHeightPx : DEFAULT_LEGEND_HEIGHT_PX;
+
+    this.velocityLegendElement.style.width = `${Math.round(width)}px`;
+    this.velocityLegendElement.style.height = `${Math.round(height)}px`;
+  }
+
+  private onLegendPointerDown = (event: PointerEvent): void => {
+    if (!event.isPrimary || event.button !== 0) {
+      return;
+    }
+
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const resizeHandle = target.closest<HTMLElement>('button[data-action="resize-legend"]');
+    if (!resizeHandle || !this.velocityLegendElement) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const legendRect = this.velocityLegendElement.getBoundingClientRect();
+    this.legendWidthPx = Math.max(MIN_LEGEND_WIDTH_PX, Math.round(legendRect.width));
+    this.legendHeightPx = Math.max(MIN_LEGEND_HEIGHT_PX, Math.round(legendRect.height));
+    this.legendHasCustomSize = true;
+    this.legendResize = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: this.legendWidthPx,
+      startHeight: this.legendHeightPx,
+      wasMapDraggingEnabled: this.map.dragging.enabled()
+    };
+
+    if (this.legendResize.wasMapDraggingEnabled) {
+      this.map.dragging.disable();
+    }
+
+    this.velocityLegendElement.classList.add("is-resizing");
+    document.addEventListener("pointermove", this.onLegendPointerMove, { passive: false });
+    document.addEventListener("pointerup", this.onLegendPointerUp);
+    document.addEventListener("pointercancel", this.onLegendPointerUp);
+  };
+
+  private onLegendPointerMove = (event: PointerEvent): void => {
+    if (!this.legendResize) {
+      return;
+    }
+
+    if (event.pointerId !== this.legendResize.pointerId) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const mapRect = this.map.getContainer().getBoundingClientRect();
+    const maxWidth = Math.max(MIN_LEGEND_WIDTH_PX, Math.floor(mapRect.width - 24));
+    const maxHeight = Math.max(MIN_LEGEND_HEIGHT_PX, Math.floor(mapRect.height - 24));
+    const widthFromDrag = this.legendResize.startWidth - (event.clientX - this.legendResize.startX);
+    const heightFromDrag = this.legendResize.startHeight - (event.clientY - this.legendResize.startY);
+    const nextWidth = Math.round(Math.min(maxWidth, Math.max(MIN_LEGEND_WIDTH_PX, widthFromDrag)));
+    const nextHeight = Math.round(Math.min(maxHeight, Math.max(MIN_LEGEND_HEIGHT_PX, heightFromDrag)));
+
+    if (nextWidth === this.legendWidthPx && nextHeight === this.legendHeightPx) {
+      return;
+    }
+
+    this.legendWidthPx = nextWidth;
+    this.legendHeightPx = nextHeight;
+    this.applyLegendSizeStyles();
+    this.rerenderLegendFromLastContext();
+  };
+
+  private onLegendPointerUp = (event?: PointerEvent, rerender = true): void => {
+    if (!this.legendResize) {
+      return;
+    }
+
+    if (event && event.pointerId !== this.legendResize.pointerId) {
+      return;
+    }
+
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    const wasMapDraggingEnabled = this.legendResize.wasMapDraggingEnabled;
+    this.legendResize = undefined;
+
+    document.removeEventListener("pointermove", this.onLegendPointerMove);
+    document.removeEventListener("pointerup", this.onLegendPointerUp);
+    document.removeEventListener("pointercancel", this.onLegendPointerUp);
+
+    this.velocityLegendElement?.classList.remove("is-resizing");
+
+    if (
+      wasMapDraggingEnabled &&
+      !this.draggingPoint &&
+      !this.marqueeSelection &&
+      !this.lassoSelection
+    ) {
+      this.map.dragging.enable();
+    }
+
+    if (rerender) {
+      this.rerenderLegendFromLastContext();
+    }
+  };
 
   private onLegendClick = (event: MouseEvent): void => {
     const target = event.target;
@@ -931,6 +1091,7 @@ export class MapView {
 
   private onWindowBlur = (): void => {
     this.isSpacePressed = false;
+    this.onLegendPointerUp(undefined, false);
     this.updateCursorClass();
   };
 

@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Improve legend analytics with a toggleable aligned histogram.
+Improve velocity legend usability with resize support and persistent view settings.
 
 ## CURRENT_SUBTASK
-Add a 3-state histogram cycle in the legend (`standard` → `precision` → `hidden`) with denser bins in precision mode.
+Completed: add legend corner-resize + width-adaptive histogram bins, and restore velocity colormap/settings across reloads.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -61,6 +61,8 @@ Add a 3-state histogram cycle in the legend (`standard` → `precision` → `hid
   - Map legend now adapts to active metric (`Velocity` or `Acceleration`) including units.
   - Map legend includes `Next Peak`, cycling through highest metric segments and focusing each one.
   - Map legend includes a colorful, colormap-aligned histogram above the scale with click-cycle modes: `standard` (coarser bins), `precision` (many thin bins, no gaps), `hidden`.
+  - Velocity legend can be resized by dragging its top-left corner; legend width drives histogram bin count in both `standard` and `precision` modes.
+  - Velocity UI settings are persisted in `localStorage` (`path-segments-velocity-settings-v1`) and restored on reload, including selected colormap.
   - While colorized segments are active on the editing track, edit markers switch to minimal ring-style markers so segment colors remain visible.
 - Segment info workflow:
   - `Info` mode lets users click timed colorized segments to open a Leaflet popup.
