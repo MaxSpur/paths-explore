@@ -17,6 +17,8 @@ type VelocityHeaderMode = "off" | SegmentColorMetric;
 const MAP_STYLE_OPTIONS: Array<{ id: MapBaseStyle; label: string }> = [
   { id: "osm-standard", label: "OSM Standard" },
   { id: "carto-light", label: "CARTO Light" },
+  { id: "carto-positron", label: "CARTO Positron" },
+  { id: "carto-positron-nolabels", label: "CARTO Positron (No Labels)" },
   { id: "carto-dark", label: "CARTO Dark" },
   { id: "carto-voyager", label: "CARTO Voyager" }
 ];

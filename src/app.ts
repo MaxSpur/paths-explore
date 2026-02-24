@@ -43,6 +43,8 @@ const DEFAULT_MAP_VIEW_SETTINGS: MapViewSettings = {
 const MAP_BASE_STYLES = new Set<MapBaseStyle>([
   "osm-standard",
   "carto-light",
+  "carto-positron",
+  "carto-positron-nolabels",
   "carto-dark",
   "carto-voyager"
 ]);
