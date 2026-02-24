@@ -90,7 +90,6 @@ interface LegendResizeContext {
 const DEFAULT_LEGEND_WIDTH_PX = 248;
 const DEFAULT_LEGEND_HEIGHT_PX = 200;
 const MIN_LEGEND_WIDTH_PX = 248;
-const MIN_LEGEND_HEIGHT_HIDDEN_PX = 176;
 const MIN_LEGEND_HEIGHT_STANDARD_PX = 232;
 const MIN_LEGEND_HEIGHT_PRECISION_PX = 248;
 const HISTOGRAM_LOG_X_STRETCH = 45;
@@ -124,6 +123,7 @@ export class MapView {
   private suppressNextMapClick = false;
   private isSpacePressed = false;
   private isPointerInsideMap = false;
+  private isPointerOverLegend = false;
   private isHoveringEditablePoint = false;
   private pointerX = 0;
   private pointerY = 0;
@@ -140,6 +140,9 @@ export class MapView {
   private legendWidthPx = DEFAULT_LEGEND_WIDTH_PX;
   private legendHeightPx = DEFAULT_LEGEND_HEIGHT_PX;
   private legendHasCustomSize = false;
+  private legendVisibleModeWidthPx = DEFAULT_LEGEND_WIDTH_PX;
+  private legendVisibleModeHeightPx = DEFAULT_LEGEND_HEIGHT_PX;
+  private legendVisibleModeWasCustom = false;
 
   constructor(container: HTMLElement, callbacks: MapViewCallbacks) {
     this.callbacks = callbacks;
@@ -167,6 +170,8 @@ export class MapView {
       L.DomEvent.disableScrollPropagation(legend);
       legend.addEventListener("click", this.onLegendClick);
       legend.addEventListener("pointerdown", this.onLegendPointerDown);
+      legend.addEventListener("mouseenter", this.onLegendMouseEnter);
+      legend.addEventListener("mouseleave", this.onLegendMouseLeave);
       this.velocityLegendElement = legend;
       return legend;
     };
@@ -767,30 +772,64 @@ export class MapView {
       return;
     }
 
-    const minHeight = this.getLegendMinimumHeightPx();
+    const minHeight = this.getLegendMinimumHeightPx(this.legendHistogramMode);
     const width = this.legendHasCustomSize ? this.legendWidthPx : DEFAULT_LEGEND_WIDTH_PX;
     const requestedHeight = this.legendHasCustomSize ? this.legendHeightPx : DEFAULT_LEGEND_HEIGHT_PX;
+    const useAutoHeight = this.legendHistogramMode === "hidden" && !this.legendHasCustomSize;
     const height = Math.max(minHeight, requestedHeight);
 
     this.velocityLegendElement.style.width = `${Math.round(width)}px`;
-    this.velocityLegendElement.style.minHeight = `${Math.round(minHeight)}px`;
-    this.velocityLegendElement.style.height = `${Math.round(height)}px`;
+    this.velocityLegendElement.style.minHeight = useAutoHeight ? "0px" : `${Math.round(minHeight)}px`;
+    this.velocityLegendElement.style.height = useAutoHeight ? "auto" : `${Math.round(height)}px`;
 
-    if (this.legendHasCustomSize) {
+    if (this.legendHasCustomSize && !useAutoHeight) {
       this.legendHeightPx = height;
     }
   }
 
-  private getLegendMinimumHeightPx(): number {
-    if (this.legendHistogramMode === "hidden") {
-      return MIN_LEGEND_HEIGHT_HIDDEN_PX;
+  private getLegendMinimumHeightPx(mode: LegendHistogramMode): number {
+    if (mode === "hidden") {
+      return 0;
     }
 
-    if (this.legendHistogramMode === "precision") {
+    if (mode === "precision") {
       return MIN_LEGEND_HEIGHT_PRECISION_PX;
     }
 
     return MIN_LEGEND_HEIGHT_STANDARD_PX;
+  }
+
+  private setLegendHistogramMode(nextMode: LegendHistogramMode): void {
+    const currentMode = this.legendHistogramMode;
+    if (nextMode === currentMode) {
+      return;
+    }
+
+    if (nextMode === "hidden") {
+      const currentWidth = this.legendHasCustomSize ? this.legendWidthPx : DEFAULT_LEGEND_WIDTH_PX;
+      const currentHeight = this.legendHasCustomSize ? this.legendHeightPx : DEFAULT_LEGEND_HEIGHT_PX;
+      const currentMinHeight = this.getLegendMinimumHeightPx(currentMode);
+
+      this.legendVisibleModeWidthPx = Math.max(MIN_LEGEND_WIDTH_PX, Math.round(currentWidth));
+      this.legendVisibleModeHeightPx = Math.max(currentMinHeight, Math.round(currentHeight));
+      this.legendVisibleModeWasCustom = this.legendHasCustomSize;
+
+      this.legendHasCustomSize = false;
+      this.legendWidthPx = DEFAULT_LEGEND_WIDTH_PX;
+      this.legendHeightPx = DEFAULT_LEGEND_HEIGHT_PX;
+      this.onLegendPointerUp(undefined, false);
+      this.legendHistogramMode = nextMode;
+      return;
+    }
+
+    if (currentMode === "hidden") {
+      this.legendWidthPx = this.legendVisibleModeWidthPx;
+      this.legendHeightPx = this.legendVisibleModeHeightPx;
+      this.legendHasCustomSize = this.legendVisibleModeWasCustom;
+      this.onLegendPointerUp(undefined, false);
+    }
+
+    this.legendHistogramMode = nextMode;
   }
 
   private onLegendPointerDown = (event: PointerEvent): void => {
@@ -804,7 +843,7 @@ export class MapView {
     }
 
     const resizeHandle = target.closest<HTMLElement>('button[data-action="resize-legend"]');
-    if (!resizeHandle || !this.velocityLegendElement) {
+    if (!resizeHandle || !this.velocityLegendElement || this.legendHistogramMode === "hidden") {
       return;
     }
 
@@ -812,7 +851,7 @@ export class MapView {
     event.stopPropagation();
 
     const legendRect = this.velocityLegendElement.getBoundingClientRect();
-    const minHeight = this.getLegendMinimumHeightPx();
+    const minHeight = this.getLegendMinimumHeightPx(this.legendHistogramMode);
     this.legendWidthPx = Math.max(MIN_LEGEND_WIDTH_PX, Math.round(legendRect.width));
     this.legendHeightPx = Math.max(minHeight, Math.round(legendRect.height));
     this.legendHasCustomSize = true;
@@ -848,7 +887,7 @@ export class MapView {
     event.stopPropagation();
 
     const mapRect = this.map.getContainer().getBoundingClientRect();
-    const minHeight = this.getLegendMinimumHeightPx();
+    const minHeight = this.getLegendMinimumHeightPx(this.legendHistogramMode);
     const maxWidth = Math.max(MIN_LEGEND_WIDTH_PX, Math.floor(mapRect.width - 24));
     const maxHeight = Math.max(minHeight, Math.floor(mapRect.height - 24));
     const widthFromDrag = this.legendResize.startWidth - (event.clientX - this.legendResize.startX);
@@ -930,12 +969,13 @@ export class MapView {
     );
     if (histogramToggle) {
       event.preventDefault();
-      this.legendHistogramMode =
+      const nextHistogramMode =
         this.legendHistogramMode === "standard"
           ? "precision"
           : this.legendHistogramMode === "precision"
             ? "hidden"
             : "standard";
+      this.setLegendHistogramMode(nextHistogramMode);
       this.rerenderLegendFromLastContext();
       return;
     }
@@ -1242,6 +1282,17 @@ export class MapView {
   private onMapMouseLeave = (): void => {
     this.isPointerInsideMap = false;
     this.isHoveringEditablePoint = false;
+    this.isPointerOverLegend = false;
+    this.updateCursorClass();
+  };
+
+  private onLegendMouseEnter = (): void => {
+    this.isPointerOverLegend = true;
+    this.updateCursorClass();
+  };
+
+  private onLegendMouseLeave = (): void => {
+    this.isPointerOverLegend = false;
     this.updateCursorClass();
   };
 
@@ -1463,7 +1514,7 @@ export class MapView {
           (this.activeEditMode !== "move" || this.isHoveringEditablePoint))) &&
       !this.isSpacePressed;
     const overlayMode = wantsCrosshair ? "crosshair" : "pan";
-    const showCursorOverlay = this.isPointerInsideMap;
+    const showCursorOverlay = this.isPointerInsideMap && !this.isPointerOverLegend;
 
     container.classList.toggle("is-editing-cursor", wantsCrosshair);
     container.classList.toggle("is-grab-cursor", !wantsCrosshair);

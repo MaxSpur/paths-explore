@@ -571,6 +571,16 @@ input {
   cursor: none !important;
 }
 
+.map-view.has-proxy-cursor .velocity-legend,
+.map-view.has-proxy-cursor .velocity-legend * {
+  cursor: auto !important;
+}
+
+.map-view.has-proxy-cursor .velocity-legend button,
+.map-view.has-proxy-cursor .velocity-legend [role="button"] {
+  cursor: pointer !important;
+}
+
 .map-space-cursor {
   position: absolute;
   top: 0;

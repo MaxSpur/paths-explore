@@ -68,6 +68,10 @@ Completed: make legend height resizing drive histogram height (not whitespace be
   - Legend minimum/default width increased to better fit metric labels (notably in Acceleration mode) without cramped wrapping.
   - Histogram now also expands vertically with legend height; extra vertical space is consumed by the histogram instead of blank area below `Next Peak`.
   - Legend minimum height is now histogram-mode-aware (`hidden` < `standard` < `precision`) so controls like `Next Peak` remain visible.
+  - Toggling histogram to `hidden` now snaps legend to default compact size, while remembering the prior visible-size legend dimensions and restoring them when histogram is shown again.
+  - Legend area now opts out of the map proxy-cursor hide behavior, so normal system cursor appears over legend controls.
+  - Hidden histogram mode now uses auto-height for a truly compact legend (no forced blank space under controls).
+  - Map proxy cursor overlay is now explicitly suppressed when pointer is over legend, preventing the custom circle from showing behind the system cursor.
   - Velocity UI settings are persisted in `localStorage` (`path-segments-velocity-settings-v1`) and restored on reload, including selected colormap.
   - While colorized segments are active on the editing track, edit markers switch to minimal ring-style markers so segment colors remain visible.
 - Segment info workflow:
