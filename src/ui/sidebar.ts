@@ -251,13 +251,19 @@ export class SidebarView {
     this.trackList.innerHTML = state.tracks
       .map((track, index) => {
         const isEditing = state.editingTrackId === track.id;
+        const visualState: "hidden" | "visible" | "editing" = isEditing
+          ? "editing"
+          : track.visible
+            ? "visible"
+            : "hidden";
+        const stateLabel = visualState === "editing" ? "Editing" : visualState === "visible" ? "Visible" : "Hidden";
         const isCollapsed = this.collapsedTrackIds.has(track.id);
         const safeTrackName = this.escapeHtml(track.name);
         const canMoveUp = index > 0;
         const canMoveDown = index < state.tracks.length - 1;
 
         return `
-          <article class="track-item${isEditing ? " is-editing" : ""}${isCollapsed ? " is-collapsed" : ""
+          <article class="track-item is-${visualState}${isCollapsed ? " is-collapsed" : ""
           }" data-track-id="${track.id}">
             <div class="track-item-header">
               <button
@@ -270,6 +276,9 @@ export class SidebarView {
                 <span class="track-item-header-main">
                   <span class="track-color" style="background:${track.color}"></span>
                   <span class="track-title" title="${safeTrackName}">${safeTrackName}</span>
+                  <span class="track-state-badge track-state-${visualState}" aria-label="Track state: ${stateLabel}">
+                    ${stateLabel}
+                  </span>
                 </span>
               </button>
               <div class="track-item-header-controls">
@@ -313,17 +322,19 @@ export class SidebarView {
             : `
               <div class="track-toggle-row">
                 <button
-                  class="track-toggle-btn ${track.visible ? "is-active" : "is-inactive"}"
+                  class="track-toggle-btn track-visibility-toggle ${track.visible ? "is-on" : "is-off"}${isEditing ? " is-editing-track" : ""
+                  }"
                   data-action="toggle-visible"
                   data-track-id="${track.id}"
                   data-next-visible="${track.visible ? "false" : "true"}"
                   type="button"
                   aria-pressed="${track.visible ? "true" : "false"}"
+                  title="${track.visible ? "Hide track" : "Show track"}"
                 >
-                  Visible
+                  ${track.visible ? "Visible" : "Hidden"}
                 </button>
                 <button
-                  class="track-toggle-btn ${track.showSegments ? "is-active" : "is-inactive"}"
+                  class="track-toggle-btn ${track.showSegments ? "is-active" : "is-inactive"}${track.visible ? "" : " is-muted"}"
                   data-action="toggle-segments"
                   data-track-id="${track.id}"
                   data-next-segments="${track.showSegments ? "false" : "true"}"
@@ -333,7 +344,7 @@ export class SidebarView {
                   Lines
                 </button>
                 <button
-                  class="track-toggle-btn ${track.showPoints || isEditing ? "is-active" : "is-inactive"}"
+                  class="track-toggle-btn ${track.showPoints || isEditing ? "is-active" : "is-inactive"}${track.visible ? "" : " is-muted"}"
                   data-action="toggle-points"
                   data-track-id="${track.id}"
                   data-next-points="${track.showPoints || isEditing ? "false" : "true"}"
@@ -344,11 +355,12 @@ export class SidebarView {
                   Points
                 </button>
                 <button
-                  class="track-toggle-btn track-edit-toggle ${isEditing ? "is-active" : "is-inactive"}"
+                  class="track-toggle-btn track-edit-toggle ${isEditing ? "is-active" : "is-inactive"}${track.visible ? "" : " is-track-hidden"}"
                   data-action="toggle-edit"
                   data-track-id="${track.id}"
                   type="button"
                   aria-pressed="${isEditing ? "true" : "false"}"
+                  title="${track.visible ? "Toggle edit mode" : "Start editing and show this track"}"
                 >
                   ${isEditing ? "Editing" : "Edit"}
                 </button>

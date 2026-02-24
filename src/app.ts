@@ -308,6 +308,10 @@ export function createApp(root: HTMLElement): void {
       await importer.importFiles(files);
     },
     onToggleVisibility: (trackId, visible) => {
+      const state = store.getState();
+      if (!visible && state.editingTrackId === trackId) {
+        store.setEditingTrack(undefined);
+      }
       store.setTrackVisibility(trackId, visible);
       render();
     },

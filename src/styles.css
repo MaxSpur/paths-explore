@@ -377,11 +377,35 @@ input {
   border-radius: 0.65rem;
   padding: 0.4rem 0.45rem 0.55rem;
   background: var(--panel-bg);
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.track-item.is-visible {
+  border-color: color-mix(in srgb, var(--accent), #d8e2dd 72%);
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--accent), #ffffff 35%);
 }
 
 .track-item.is-editing {
   border-color: var(--accent);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent), white 45%);
+  box-shadow:
+    inset 2px 0 0 var(--accent),
+    0 0 0 1px color-mix(in srgb, var(--accent), white 45%);
+  background: color-mix(in srgb, #f7fcf9, #ffffff 52%);
+}
+
+.track-item.is-hidden {
+  border-color: color-mix(in srgb, var(--border), #6d7f76 22%);
+  border-style: dashed;
+  background: #f7faf8;
+}
+
+.track-item.is-hidden .track-title {
+  color: #495a52;
+}
+
+.track-item.is-hidden .track-color {
+  opacity: 0.84;
+  filter: saturate(0.7);
 }
 
 .track-item.is-collapsed {
@@ -417,9 +441,45 @@ input {
 .track-title {
   margin: 0;
   font-size: 0.95rem;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.track-state-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.08rem 0.36rem;
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: #465850;
+  background: #ffffff;
+  flex: 0 0 auto;
+}
+
+.track-state-visible {
+  border-color: color-mix(in srgb, var(--accent), #9fb9af 35%);
+  background: #e8f7f1;
+  color: #0f3128;
+}
+
+.track-state-editing {
+  border-color: color-mix(in srgb, var(--accent), #0f3128 15%);
+  background: color-mix(in srgb, var(--accent), #ffffff 72%);
+  color: #0f3128;
+}
+
+.track-state-hidden {
+  border-color: color-mix(in srgb, var(--border), #70827a 30%);
+  background: #f4f8f6;
+  color: #586a62;
 }
 
 .track-item-header-controls {
@@ -508,6 +568,29 @@ input {
   color: #475a52;
 }
 
+.track-toggle-btn.is-muted {
+  opacity: 0.76;
+}
+
+.track-visibility-toggle.is-on {
+  border-color: color-mix(in srgb, var(--accent), #1b3a31 25%);
+  background: #e8f7f1;
+  color: #0f3128;
+}
+
+.track-visibility-toggle.is-off {
+  border-style: dashed;
+  border-color: color-mix(in srgb, var(--border), #6e8078 28%);
+  background: #f4f8f6;
+  color: #5a6c64;
+}
+
+.track-visibility-toggle.is-editing-track {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent), #10342a 18%);
+  background: color-mix(in srgb, var(--accent), #ffffff 74%);
+}
+
 .track-toggle-btn:hover:not(:disabled) {
   border-color: var(--accent);
 }
@@ -519,6 +602,10 @@ input {
 
 .track-edit-toggle.is-active {
   background: color-mix(in srgb, var(--accent), #ffffff 70%);
+}
+
+.track-edit-toggle.is-track-hidden {
+  border-style: dashed;
 }
 
 .track-actions {
@@ -538,6 +625,11 @@ input {
 
 .track-actions button:hover {
   border-color: var(--accent);
+}
+
+.track-item.is-hidden .track-actions button {
+  background: #f9fbfa;
+  color: #556860;
 }
 
 .empty-message {

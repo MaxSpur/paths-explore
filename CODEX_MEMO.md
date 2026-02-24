@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Tune undo UX timing by navigation type.
+Improve track-card state readability in sidebar.
 
 ## CURRENT_SUBTASK
-Completed: undo/redo now uses two configurable post-navigation delays in `src/app.ts`: `UNDO_PAN_NAVIGATION_APPLY_DELAY_MS` (150) and `UNDO_TELEPORT_NAVIGATION_APPLY_DELAY_MS` (300).
+Completed: added explicit visual states for each track card (`Hidden`, `Visible`, `Editing`) with state badges and updated pill styling; hiding an actively edited track now exits edit mode first.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -118,6 +118,11 @@ Completed: undo/redo now uses two configurable post-navigation delays in `src/ap
   - Replaced checkbox toggles with pill-style buttons for `Visible`, `Lines`, `Points`, and `Edit`.
   - Removed `Start Edit`/`Stop Edit` action button in favor of a persistent edit-state toggle.
   - Visibility toggling no longer triggers map auto-fit/movement.
+  - Track cards now expose explicit tri-state visuals:
+    - `Hidden`: dashed card border + muted controls + `Hidden` state badge
+    - `Visible`: subtle accented card styling + `Visible` state badge
+    - `Editing`: emphasized accent border/shadow + `Editing` state badge
+  - Visibility pill text now reflects current state (`Visible`/`Hidden`), and hiding the currently edited track exits edit mode to keep the state model coherent.
   - Track visualization rules enforce at least one of `Points` or `Segments` active.
 - Track ordering:
   - Sidebar ordering now controls map overlap order.
