@@ -168,4 +168,42 @@ describe("track store", () => {
     store.movePoint("track-1", "track-1-c", 41, -101);
     expect(store.canRedoEdits()).toBe(false);
   });
+
+  it("undoes visibility toggles and track reordering", () => {
+    const store = new TrackStore();
+    store.addTracks([buildTrack("track-1", "one"), buildTrack("track-2", "two")]);
+
+    store.setTrackVisibility("track-1", false);
+    store.moveTrack("track-2", "up");
+
+    expect(store.getState().tracks[0].id).toBe("track-2");
+    expect(store.getState().tracks.find((track) => track.id === "track-1")?.visible).toBe(false);
+
+    store.undoEdits();
+    expect(store.getState().tracks.map((track) => track.id)).toEqual(["track-1", "track-2"]);
+    expect(store.getState().tracks.find((track) => track.id === "track-1")?.visible).toBe(false);
+
+    store.undoEdits();
+    expect(store.getState().tracks.find((track) => track.id === "track-1")?.visible).toBe(true);
+  });
+
+  it("restores external settings snapshots in the same undo stack", () => {
+    let externalState = { metric: "velocity", max: 60 };
+    const store = new TrackStore({
+      captureExternalState: () => ({ ...externalState }),
+      restoreExternalState: (value) => {
+        externalState = { ...(value as { metric: string; max: number }) };
+      }
+    });
+
+    store.addTracks([buildTrack("track-1", "editable")]);
+    store.recordHistoryCheckpoint();
+    externalState = { metric: "acceleration", max: 20 };
+
+    store.undoEdits();
+    expect(externalState).toEqual({ metric: "velocity", max: 60 });
+
+    store.redoEdits();
+    expect(externalState).toEqual({ metric: "acceleration", max: 20 });
+  });
 });

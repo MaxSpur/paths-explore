@@ -81,6 +81,19 @@ function saveVelocitySettings(settings: VelocityViewSettings): void {
   }
 }
 
+function areVelocitySettingsEqual(
+  left: VelocityViewSettings,
+  right: VelocityViewSettings
+): boolean {
+  return (
+    left.enabled === right.enabled &&
+    left.metric === right.metric &&
+    left.scaleMode === right.scaleMode &&
+    left.fixedMax === right.fixedMax &&
+    left.colormapId === right.colormapId
+  );
+}
+
 function downloadTrackFile(fileName: string, mimeType: string, content: string): void {
   const blob = new Blob([content], { type: mimeType });
   const objectUrl = URL.createObjectURL(blob);
@@ -106,18 +119,24 @@ export function createApp(root: HTMLElement): void {
   const sidebarElement = root.querySelector("#sidebar") as HTMLElement;
   const mapElement = root.querySelector("#map") as HTMLElement;
 
-  const store = new TrackStore();
-  const persistence = createTrackPersistence();
-  let latestSummary: ImportSummary | undefined;
   let editMode: EditInteractionMode = "move";
   let velocitySettings: VelocityViewSettings = loadVelocitySettings();
   saveVelocitySettings(velocitySettings);
+  const store = new TrackStore();
+  const persistence = createTrackPersistence();
+  let latestSummary: ImportSummary | undefined;
   let sidebar: SidebarView;
   let mapView: MapView;
 
-  const setVelocitySettings = (next: VelocityViewSettings): void => {
-    velocitySettings = normalizeVelocitySettings(next);
+  const setVelocitySettings = (next: VelocityViewSettings): boolean => {
+    const normalized = normalizeVelocitySettings(next);
+    if (areVelocitySettingsEqual(normalized, velocitySettings)) {
+      return false;
+    }
+
+    velocitySettings = normalized;
     saveVelocitySettings(velocitySettings);
+    return true;
   };
 
   const render = (options: RenderOptions = {}): void => {

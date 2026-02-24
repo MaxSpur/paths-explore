@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Implement an undo buffer for track point editing workflows.
+Refine undo scope and documentation quality.
 
 ## CURRENT_SUBTASK
-Completed: bounded undo/redo history for point move/delete edits with keyboard shortcuts.
+Completed: removed velocity settings from undo history while keeping broader track mutation undo; updated README to match current app behavior.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -39,11 +39,12 @@ Completed: bounded undo/redo history for point move/delete edits with keyboard s
   - Shift-click toggles points into/out of the active selection (within the same track context).
   - Dragging one selected point in edit mode moves all selected points together.
   - During drag, connected segments now update live for moved points (including velocity-colored per-segment polylines), so geometry follows the cursor before mouse release.
-  - Track edit history now supports undo/redo for point edits (`movePoints`, `deleteSelectedPoints`, and `updateTrackPoints`) with bounded in-memory history.
+  - Track history now supports undo/redo for point edits and structural mutations: `movePoints`, `deleteSelectedPoints`, `updateTrackPoints`, `addTracks`, `removeTrack`, visibility toggles, points/lines toggles, and track reordering.
+  - Velocity settings are intentionally excluded from undo history (they remain persisted in localStorage).
   - Keyboard shortcuts:
     - Undo: `Cmd+Z` (macOS) / `Ctrl+Z` (Windows/Linux)
     - Redo: `Shift+Cmd+Z` (macOS), `Ctrl+Shift+Z` or `Ctrl+Y` (Windows/Linux)
-  - Undo history is intentionally cleared on non-edit track mutations (import/hydrate/remove/reorder/visibility toggles) to avoid reverting unrelated UI/track state.
+  - History is still cleared by `hydrateTracks` (initial restore) to start sessions from a clean baseline.
   - Delete/Backspace removes all selected points in one operation.
   - Point delete no longer triggers map auto-fit.
   - Leaflet default Shift box-zoom is disabled; custom Shift-drag marquee now selects points in the active editing track.
@@ -80,9 +81,10 @@ Completed: bounded undo/redo history for point move/delete edits with keyboard s
   - Map proxy cursor overlay is now explicitly suppressed when pointer is over legend, preventing the custom circle from showing behind the system cursor.
   - Legend now forces standard system cursor over its surface (pointer only for clickable controls), independent of map cursor mode.
   - Resize handle is shown only when histogram is visible; it is hidden in `hidden` histogram mode when legend is not resizable.
-  - Clickable legend controls now force pointer cursor across their full hit-area contents (including histogram bar region spans).
-  - Standard and precision histogram modes now share the same minimum legend height and histogram minimum height.
-  - Resize-enabled legend uses a sharp top-left corner with a compact triangular corner handle, avoiding header whitespace and title overlap.
+- Clickable legend controls now force pointer cursor across their full hit-area contents (including histogram bar region spans).
+- Standard and precision histogram modes now share the same minimum legend height and histogram minimum height.
+- Resize-enabled legend uses a sharp top-left corner with a compact triangular corner handle, avoiding header whitespace and title overlap.
+- `README.md` has been refreshed to reflect current controls, legend modes, undo scope, keyboard shortcuts, and deployment behavior.
   - Velocity UI settings are persisted in `localStorage` (`path-segments-velocity-settings-v1`) and restored on reload, including selected colormap.
   - While colorized segments are active on the editing track, edit markers switch to minimal ring-style markers so segment colors remain visible.
 - Segment info workflow:

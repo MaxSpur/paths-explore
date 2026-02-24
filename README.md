@@ -1,41 +1,59 @@
 # Path Segments
 
-Map-first track viewer/editor built with Vite + TypeScript + Leaflet.
+Map-first GPX/KML/GeoJSON viewer and editor built with Vite + TypeScript + Leaflet.
 
-## Features
+## Core capabilities
 
-- OSM map with Leaflet rendering.
-- Import multiple `.gpx`, `.kml`, `.geojson`, and `.json` files.
-- Imported/edited tracks persist across reloads via IndexedDB.
-- Multi-track display with deterministic per-track colors.
-- Per-track toggles for path visibility and point visibility.
-- Optional velocity visualization:
-  - Color each segment between consecutive points by computed speed
-  - Uses CET-L08 perceptual colormap (blue -> magenta -> yellow)
-  - Any `.csv` colormap placed in `src/colormaps/` is auto-discovered and appears in the colormap selector
-  - Auto-normalized against all loaded tracks, or fixed max speed mode
-  - Requires timestamps on points (`time`) to compute segment velocities
-- Basic editing for one track at a time:
-  - Select edit interaction mode in the **Edit** panel:
-    - **Move points mode**: drag selected points
-    - **Marquee selection mode**: drag box on map to select points
-    - **Lasso selection mode**: freehand-draw a selection area on map
-  - click point to select
-  - Shift-click to add/remove points from selection
-  - Shift-drag on map to marquee-select points in the editing track (also works in Move mode)
-  - In marquee/lasso mode, hold Shift while dragging to add to existing selection
-  - Hold Space and left-drag to pan the map in any edit mode
-  - drag point to move
-  - `Delete`/`Backspace` to remove selected point(s)
-- Track list supports:
-  - **Collapse** / **Expand** all track cards
-  - clicking a track header to toggle that card between collapsed and expanded
-- Per-track actions include:
-  - Focus
-  - Export (same data format as imported)
-  - Start/Stop Edit
-  - Delete
-- Partial import failure handling (valid files still load).
+- Render OpenStreetMap tiles with Leaflet.
+- Import multiple files at once: `.gpx`, `.kml`, `.geojson`, `.json`.
+- Drag-and-drop import works anywhere on the page.
+- Partial import resilience: one bad file does not block valid files.
+- IndexedDB persistence for loaded/edited tracks across reloads.
+- Export each track in its original format family (GPX/KML/GeoJSON).
+
+## Track and sidebar UX
+
+- Deterministic per-track coloring.
+- Per-track pills: `Visible`, `Lines`, `Points`, `Edit`.
+- Per-track actions: `Focus`, `Export`, `Delete`.
+- Track card collapse/expand per track + global `Collapse`/`Expand`.
+- Track draw-order controls (up/down), reflected in map overlap order.
+- Sidebar sections are collapsible/reorderable and persisted in localStorage.
+
+## Editing
+
+- One active editing track at a time.
+- Edit modes: `Move`, `Marquee`, `Lasso`, `Info`.
+- Multi-select points with Shift behaviors.
+- Move selected points by dragging; connected segments update live while dragging.
+- Delete selected points with `Delete`/`Backspace`.
+- `Escape` clears selection.
+- Hold `Space` to temporarily pan while in any edit mode.
+
+## Undo/redo
+
+- Undo/redo is global for track mutations and point edits, including:
+  - point move/delete
+  - track add/remove
+  - track visibility and geometry display toggles
+  - track reordering
+- Shortcuts:
+  - Undo: `Cmd+Z` / `Ctrl+Z`
+  - Redo: `Shift+Cmd+Z`, `Ctrl+Shift+Z`, or `Ctrl+Y`
+- Velocity panel settings are persisted, but not part of undo history.
+
+## Segment coloring and legend
+
+- Segment coloring modes: `Velocity` and `Acceleration`.
+- Scale modes: `Auto` (visible tracks) or `Fixed`.
+- CSV colormap auto-discovery from `src/colormaps/*.csv`.
+- Perceptually uniform colormaps for velocity and acceleration visualization.
+- `Info` mode can open segment popups with metric/distance/duration/point details.
+- Legend supports:
+  - histogram mode cycle (`standard`, `precision`, `hidden`)
+  - axis scaling combinations (`L/L`, `L/G`, `G/L`, `G/G`)
+  - next-peak navigation across ranked segments
+  - corner resize when histogram is visible
 
 ## Local development
 
@@ -44,22 +62,19 @@ npm install
 npm run dev
 ```
 
-## Test
+Default dev server: `http://localhost:5174`.
+
+## Testing and build
 
 ```bash
 npm test
-```
-
-## Build
-
-```bash
 npm run build
 ```
 
-## GitHub Pages
+## GitHub Pages deployment
 
-- Vite production base is set to a relative path (`./`) in `vite.config.ts` so asset URLs work after repo renames or custom domain changes.
-- Workflow file: `.github/workflows/deploy.yml`.
+- Workflow: `.github/workflows/deploy.yml` (push to `master` or `main`, plus manual dispatch).
+- Vite base is relative (`./`) for repo rename/custom-domain safety.
 - In repository settings, set Pages source to **GitHub Actions**.
-- Deployment flow: commit/push source files only; GitHub Actions builds and publishes `dist` automatically.
-- `dist/` is git-ignored and should not be committed.
+- Commit source files only; CI builds and publishes `dist`.
+- `dist/` is intentionally git-ignored.
