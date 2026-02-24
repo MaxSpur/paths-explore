@@ -72,6 +72,11 @@ Completed: make legend height resizing drive histogram height (not whitespace be
   - Legend area now opts out of the map proxy-cursor hide behavior, so normal system cursor appears over legend controls.
   - Hidden histogram mode now uses auto-height for a truly compact legend (no forced blank space under controls).
   - Map proxy cursor overlay is now explicitly suppressed when pointer is over legend, preventing the custom circle from showing behind the system cursor.
+  - Legend now forces standard system cursor over its surface (pointer only for clickable controls), independent of map cursor mode.
+  - Resize handle is shown only when histogram is visible; it is hidden in `hidden` histogram mode when legend is not resizable.
+  - Clickable legend controls now force pointer cursor across their full hit-area contents (including histogram bar region spans).
+  - Standard and precision histogram modes now share the same minimum legend height and histogram minimum height.
+  - Resize-enabled legend uses a sharp top-left corner with a compact triangular corner handle, avoiding header whitespace and title overlap.
   - Velocity UI settings are persisted in `localStorage` (`path-segments-velocity-settings-v1`) and restored on reload, including selected colormap.
   - While colorized segments are active on the editing track, edit markers switch to minimal ring-style markers so segment colors remain visible.
 - Segment info workflow:

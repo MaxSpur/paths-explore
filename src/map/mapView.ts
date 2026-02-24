@@ -90,8 +90,8 @@ interface LegendResizeContext {
 const DEFAULT_LEGEND_WIDTH_PX = 248;
 const DEFAULT_LEGEND_HEIGHT_PX = 200;
 const MIN_LEGEND_WIDTH_PX = 248;
-const MIN_LEGEND_HEIGHT_STANDARD_PX = 232;
-const MIN_LEGEND_HEIGHT_PRECISION_PX = 248;
+const MIN_LEGEND_HEIGHT_HISTOGRAM_PX = 238;
+const HISTOGRAM_MIN_HEIGHT_REM = 3.35;
 const HISTOGRAM_LOG_X_STRETCH = 45;
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -525,6 +525,18 @@ export class MapView {
     const gradient = this.buildLegendGradient(colormap.colors);
     const histogramMarkup = this.buildLegendHistogramMarkup(colormap.colors, velocityScaleInfo);
     const axisModeControlMarkup = this.buildLegendAxisModeControlMarkup();
+    const resizeEnabled = this.legendHistogramMode !== "hidden";
+    const resizeHandleMarkup = resizeEnabled
+      ? `
+      <button
+        type="button"
+        data-action="resize-legend"
+        class="velocity-legend-resize-handle"
+        title="Drag top-left corner to resize legend"
+        aria-label="Resize legend"
+      ></button>
+    `
+      : "";
     const scaleLabel =
       settings.scaleMode === "fixed"
         ? `Fixed scale (max ${Math.max(0, Math.round(settings.fixedMax * 10) / 10)} ${unitLabel})`
@@ -538,13 +550,7 @@ export class MapView {
 
     this.velocityLegendElement.classList.remove("is-hidden");
     this.velocityLegendElement.innerHTML = `
-      <button
-        type="button"
-        data-action="resize-legend"
-        class="velocity-legend-resize-handle"
-        title="Drag top-left corner to resize legend"
-        aria-label="Resize legend"
-      ></button>
+      ${resizeHandleMarkup}
       <div class="velocity-legend-header">
         <div class="velocity-legend-title">${metricLabel}</div>
         ${axisModeControlMarkup}
@@ -568,6 +574,7 @@ export class MapView {
         <span class="velocity-legend-cycle-status">${currentRank}/${totalRanks}</span>
       </div>
     `;
+    this.velocityLegendElement.classList.toggle("is-resize-enabled", resizeEnabled);
     this.applyLegendSizeStyles();
     this.velocityLegendElement.classList.toggle("is-resizing", Boolean(this.legendResize));
   }
@@ -658,7 +665,7 @@ export class MapView {
   ): string {
     const isPrecisionMode = this.legendHistogramMode === "precision";
     const binCount = this.getHistogramBinCount(isPrecisionMode);
-    const histogramMinHeightRem = isPrecisionMode ? 4.1 : 3.0;
+    const histogramMinHeightRem = HISTOGRAM_MIN_HEIGHT_REM;
     const histogramGapPx = isPrecisionMode ? 0 : 1;
     const barRadiusStyle = isPrecisionMode ? "0" : "0.08rem 0.08rem 0 0";
     const counts = new Array<number>(binCount).fill(0);
@@ -792,11 +799,7 @@ export class MapView {
       return 0;
     }
 
-    if (mode === "precision") {
-      return MIN_LEGEND_HEIGHT_PRECISION_PX;
-    }
-
-    return MIN_LEGEND_HEIGHT_STANDARD_PX;
+    return MIN_LEGEND_HEIGHT_HISTOGRAM_PX;
   }
 
   private setLegendHistogramMode(nextMode: LegendHistogramMode): void {
