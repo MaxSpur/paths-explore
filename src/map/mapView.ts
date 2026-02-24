@@ -12,6 +12,7 @@ import type {
   PointCoordinateUpdate,
   SegmentColorMetric,
   Track,
+  TrackPoint,
   VelocityViewSettings
 } from "../model/types";
 
@@ -85,6 +86,7 @@ interface VelocityPolylineRenderResult {
 
 type LegendHistogramMode = "standard" | "precision" | "hidden";
 type LegendHistogramAxisMode = "lin-lin" | "lin-log" | "log-lin" | "log-log";
+export type UndoNavigationMode = "none" | "pan" | "teleport";
 interface LegendResizeContext {
   pointerId: number;
   startX: number;
@@ -396,6 +398,95 @@ export class MapView {
 
     const bounds = L.latLngBounds(allPoints);
     this.map.fitBounds(bounds.pad(0.15));
+  }
+
+  async focusPointsIfOutsideView(
+    points: Array<Pick<TrackPoint, "lat" | "lng">>
+  ): Promise<UndoNavigationMode> {
+    if (points.length === 0) {
+      return "none";
+    }
+
+    const validPoints = points.filter(
+      (point) => Number.isFinite(point.lat) && Number.isFinite(point.lng)
+    );
+    if (validPoints.length === 0) {
+      return "none";
+    }
+
+    const currentBounds = this.map.getBounds();
+    const anyPointAlreadyVisible = validPoints.some((point) =>
+      currentBounds.contains([point.lat, point.lng])
+    );
+    if (anyPointAlreadyVisible) {
+      return "none";
+    }
+
+    const bounds = L.latLngBounds(validPoints.map((point) => [point.lat, point.lng] as L.LatLngTuple));
+    if (!bounds.isValid()) {
+      return "none";
+    }
+
+    const targetBounds = bounds.pad(0.8);
+    const fitOptions: L.FitBoundsOptions = { maxZoom: 16 };
+    const navigationMode = this.classifyUndoNavigationMode(targetBounds, fitOptions);
+    await this.fitBoundsAndWait(targetBounds, fitOptions);
+    return navigationMode;
+  }
+
+  private classifyUndoNavigationMode(
+    targetBounds: L.LatLngBounds,
+    options?: L.FitBoundsOptions
+  ): Exclude<UndoNavigationMode, "none"> {
+    const currentCenter = this.map.getCenter();
+    const targetCenter = targetBounds.getCenter();
+    const distanceMeters = currentCenter.distanceTo(targetCenter);
+
+    const currentZoom = this.map.getZoom();
+    let targetZoom = this.map.getBoundsZoom(targetBounds, false);
+
+    if (options?.maxZoom !== undefined) {
+      targetZoom = Math.min(targetZoom, options.maxZoom);
+    }
+    if (options?.minZoom !== undefined) {
+      targetZoom = Math.max(targetZoom, options.minZoom);
+    }
+
+    const zoomDelta = Math.abs(targetZoom - currentZoom);
+
+    if (distanceMeters >= 25_000 || zoomDelta >= 3) {
+      return "teleport";
+    }
+
+    return "pan";
+  }
+
+  private fitBoundsAndWait(bounds: L.LatLngBounds, options?: L.FitBoundsOptions): Promise<void> {
+    return new Promise((resolve) => {
+      let resolved = false;
+      const timeout = window.setTimeout(() => {
+        if (resolved) {
+          return;
+        }
+
+        resolved = true;
+        this.map.off("moveend", onMoveEnd);
+        resolve();
+      }, 600);
+
+      const onMoveEnd = (): void => {
+        if (resolved) {
+          return;
+        }
+
+        resolved = true;
+        window.clearTimeout(timeout);
+        resolve();
+      };
+
+      this.map.once("moveend", onMoveEnd);
+      this.map.fitBounds(bounds, options);
+    });
   }
 
   private renderVelocityTrackPolyline(

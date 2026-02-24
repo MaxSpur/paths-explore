@@ -4,8 +4,8 @@ interface KeyboardEditorOptions {
   getState: () => AppState;
   deleteSelectedPoints: () => void;
   clearSelection: () => void;
-  undoEdits: () => void;
-  redoEdits: () => void;
+  undoEdits: () => void | Promise<void>;
+  redoEdits: () => void | Promise<void>;
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -34,13 +34,13 @@ export function bindKeyboardEditor(options: KeyboardEditorOptions): () => void {
 
     if (isRedoShortcut) {
       event.preventDefault();
-      options.redoEdits();
+      void options.redoEdits();
       return;
     }
 
     if (isUndoShortcut) {
       event.preventDefault();
-      options.undoEdits();
+      void options.undoEdits();
       return;
     }
 

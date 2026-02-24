@@ -2,18 +2,12 @@ import { getTrackColor } from "./colors";
 import type { AppState, PointCoordinateUpdate, Track, TrackPoint } from "./types";
 
 type StateListener = (state: AppState) => void;
-interface ExternalHistoryAdapter {
-  captureExternalState: () => unknown;
-  restoreExternalState: (value: unknown) => void;
-}
-
 interface EditHistorySnapshot {
   tracks: Track[];
   selectedTrackId?: string;
   editingTrackId?: string;
   selectedPointId?: string;
   selectedPointIds: string[];
-  externalState?: unknown;
 }
 
 const EDIT_HISTORY_LIMIT = 120;
@@ -38,11 +32,6 @@ export class TrackStore {
   private listeners = new Set<StateListener>();
   private editHistoryPast: EditHistorySnapshot[] = [];
   private editHistoryFuture: EditHistorySnapshot[] = [];
-  private historyAdapter?: ExternalHistoryAdapter;
-
-  constructor(historyAdapter?: ExternalHistoryAdapter) {
-    this.historyAdapter = historyAdapter;
-  }
 
   private normalizeTrackGeometryVisibility(
     track: Track,
@@ -479,8 +468,22 @@ export class TrackStore {
     return this.editHistoryFuture.length > 0;
   }
 
-  recordHistoryCheckpoint(): void {
-    this.pushEditSnapshot();
+  peekUndoState(): AppState | undefined {
+    const previousSnapshot = this.editHistoryPast[this.editHistoryPast.length - 1];
+    if (!previousSnapshot) {
+      return undefined;
+    }
+
+    return this.restoreEditSnapshot(previousSnapshot);
+  }
+
+  peekRedoState(): AppState | undefined {
+    const nextSnapshot = this.editHistoryFuture[this.editHistoryFuture.length - 1];
+    if (!nextSnapshot) {
+      return undefined;
+    }
+
+    return this.restoreEditSnapshot(nextSnapshot);
   }
 
   undoEdits(): void {
@@ -496,7 +499,6 @@ export class TrackStore {
 
     this.editHistoryFuture.push(currentSnapshot);
     this.state = this.restoreEditSnapshot(previousSnapshot);
-    this.applyExternalState(previousSnapshot.externalState);
     this.emit();
   }
 
@@ -513,7 +515,6 @@ export class TrackStore {
 
     this.editHistoryPast.push(currentSnapshot);
     this.state = this.restoreEditSnapshot(nextSnapshot);
-    this.applyExternalState(nextSnapshot.externalState);
     this.emit();
   }
 
@@ -536,8 +537,7 @@ export class TrackStore {
       selectedTrackId: this.state.selectedTrackId,
       editingTrackId: this.state.editingTrackId,
       selectedPointId: this.state.selectedPointId,
-      selectedPointIds: [...this.state.selectedPointIds],
-      externalState: this.historyAdapter?.captureExternalState()
+      selectedPointIds: [...this.state.selectedPointIds]
     };
   }
 
@@ -556,10 +556,6 @@ export class TrackStore {
       ...track,
       points: track.points.map((point) => ({ ...point }))
     }));
-  }
-
-  private applyExternalState(value: unknown): void {
-    this.historyAdapter?.restoreExternalState(value);
   }
 
   private emit(): void {

@@ -1,11 +1,11 @@
 import { createFileImporter } from "./io/fileImport";
 import { createTrackPersistence } from "./io/persistence";
 import { serializeTrack } from "./io/serializers";
-import { MapView } from "./map/mapView";
+import { MapView, type UndoNavigationMode } from "./map/mapView";
 import { computeVelocityScaleInfo } from "./map/velocity";
 import { DEFAULT_COLORMAP_ID, getColormapById } from "./colormaps";
 import { TrackStore } from "./model/store";
-import type { EditInteractionMode, ImportSummary, VelocityViewSettings } from "./model/types";
+import type { AppState, EditInteractionMode, ImportSummary, Track, VelocityViewSettings } from "./model/types";
 import { bindKeyboardEditor } from "./ui/editor";
 import { SidebarView } from "./ui/sidebar";
 
@@ -15,6 +15,8 @@ interface RenderOptions {
 
 const VELOCITY_SETTINGS_STORAGE_KEY = "path-segments-velocity-settings-v1";
 const VELOCITY_MAX_LIMIT = 350;
+const UNDO_PAN_NAVIGATION_APPLY_DELAY_MS = 150;
+const UNDO_TELEPORT_NAVIGATION_APPLY_DELAY_MS = 300;
 
 const DEFAULT_VELOCITY_SETTINGS: VelocityViewSettings = {
   enabled: false,
@@ -92,6 +94,121 @@ function areVelocitySettingsEqual(
     left.fixedMax === right.fixedMax &&
     left.colormapId === right.colormapId
   );
+}
+
+function areTrackPointsStructurallyEqual(left: Track["points"], right: Track["points"]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  for (let index = 0; index < left.length; index += 1) {
+    const leftPoint = left[index];
+    const rightPoint = right[index];
+    if (!rightPoint) {
+      return false;
+    }
+
+    if (
+      leftPoint.id !== rightPoint.id ||
+      leftPoint.lat !== rightPoint.lat ||
+      leftPoint.lng !== rightPoint.lng
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function collectTrackChangedPoints(previousTrack: Track, nextTrack: Track): Array<{ lat: number; lng: number }> {
+  const previousByPointId = new Map(previousTrack.points.map((point) => [point.id, point]));
+  const changedPoints: Array<{ lat: number; lng: number }> = [];
+
+  for (const point of nextTrack.points) {
+    const previousPoint = previousByPointId.get(point.id);
+    if (!previousPoint || previousPoint.lat !== point.lat || previousPoint.lng !== point.lng) {
+      changedPoints.push({ lat: point.lat, lng: point.lng });
+    }
+  }
+
+  return changedPoints;
+}
+
+function collectUndoNavigationPoints(
+  previousState: AppState,
+  nextState: AppState
+): Array<{ lat: number; lng: number }> {
+  const previousTracksById = new Map(previousState.tracks.map((track) => [track.id, track]));
+  const nextTracksById = new Map(nextState.tracks.map((track) => [track.id, track]));
+  const candidatePoints: Array<{ lat: number; lng: number }> = [];
+
+  const trackIds = new Set([...previousTracksById.keys(), ...nextTracksById.keys()]);
+  for (const trackId of trackIds) {
+    const previousTrack = previousTracksById.get(trackId);
+    const nextTrack = nextTracksById.get(trackId);
+
+    if (!nextTrack || !nextTrack.visible || nextTrack.points.length === 0) {
+      continue;
+    }
+
+    if (!previousTrack) {
+      candidatePoints.push(...nextTrack.points.map((point) => ({ lat: point.lat, lng: point.lng })));
+      continue;
+    }
+
+    const becameVisible = !previousTrack.visible && nextTrack.visible;
+    const displayModeChanged =
+      previousTrack.visible !== nextTrack.visible ||
+      previousTrack.showPoints !== nextTrack.showPoints ||
+      previousTrack.showSegments !== nextTrack.showSegments;
+    const geometryChanged = !areTrackPointsStructurallyEqual(previousTrack.points, nextTrack.points);
+
+    if (!becameVisible && !displayModeChanged && !geometryChanged) {
+      continue;
+    }
+
+    if (becameVisible || (displayModeChanged && !geometryChanged)) {
+      candidatePoints.push(...nextTrack.points.map((point) => ({ lat: point.lat, lng: point.lng })));
+      continue;
+    }
+
+    const changedPoints = collectTrackChangedPoints(previousTrack, nextTrack);
+    if (changedPoints.length > 0) {
+      candidatePoints.push(...changedPoints);
+      continue;
+    }
+
+    candidatePoints.push(...nextTrack.points.map((point) => ({ lat: point.lat, lng: point.lng })));
+  }
+
+  const dedupedByKey = new Map<string, { lat: number; lng: number }>();
+  for (const point of candidatePoints) {
+    dedupedByKey.set(`${point.lat.toFixed(7)}:${point.lng.toFixed(7)}`, point);
+  }
+
+  return Array.from(dedupedByKey.values());
+}
+
+function delayMs(milliseconds: number): Promise<void> {
+  if (milliseconds <= 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
+}
+
+function getUndoNavigationDelayMs(mode: UndoNavigationMode): number {
+  if (mode === "teleport") {
+    return UNDO_TELEPORT_NAVIGATION_APPLY_DELAY_MS;
+  }
+
+  if (mode === "pan") {
+    return UNDO_PAN_NAVIGATION_APPLY_DELAY_MS;
+  }
+
+  return 0;
 }
 
 function downloadTrackFile(fileName: string, mimeType: string, content: string): void {
@@ -291,6 +408,37 @@ export function createApp(root: HTMLElement): void {
 
   importer.bindDropZone(document.body);
 
+  let historyActionQueue: Promise<void> = Promise.resolve();
+
+  const runHistoryAction = async (direction: "undo" | "redo"): Promise<void> => {
+    const previousState = store.getState();
+    const nextStatePreview = direction === "undo" ? store.peekUndoState() : store.peekRedoState();
+
+    if (!nextStatePreview) {
+      return;
+    }
+
+    const navigationPoints = collectUndoNavigationPoints(previousState, nextStatePreview);
+    const navigationMode = await mapView.focusPointsIfOutsideView(navigationPoints);
+    await delayMs(getUndoNavigationDelayMs(navigationMode));
+
+    if (direction === "undo") {
+      store.undoEdits();
+    } else {
+      store.redoEdits();
+    }
+
+    render();
+  };
+
+  const enqueueHistoryAction = (direction: "undo" | "redo"): Promise<void> => {
+    historyActionQueue = historyActionQueue
+      .catch(() => undefined)
+      .then(() => runHistoryAction(direction));
+
+    return historyActionQueue;
+  };
+
   bindKeyboardEditor({
     getState: () => store.getState(),
     deleteSelectedPoints: () => {
@@ -301,14 +449,8 @@ export function createApp(root: HTMLElement): void {
       store.setSelectedPoints(undefined, []);
       render();
     },
-    undoEdits: () => {
-      store.undoEdits();
-      render();
-    },
-    redoEdits: () => {
-      store.redoEdits();
-      render();
-    }
+    undoEdits: () => enqueueHistoryAction("undo"),
+    redoEdits: () => enqueueHistoryAction("redo")
   });
 
   let previousTracks = store.getState().tracks;

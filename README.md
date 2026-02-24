@@ -41,6 +41,9 @@ Map-first GPX/KML/GeoJSON viewer and editor built with Vite + TypeScript + Leafl
   - Undo: `Cmd+Z` / `Ctrl+Z`
   - Redo: `Shift+Cmd+Z`, `Ctrl+Shift+Z`, or `Ctrl+Y`
 - Velocity panel settings are persisted, but not part of undo history.
+- Off-screen undo/redo navigation:
+  - if an undo/redo change is already visible in the current map view, camera does not move
+  - if the changed geometry is outside the current view, the map auto-focuses that changed area
 
 ## Segment coloring and legend
 

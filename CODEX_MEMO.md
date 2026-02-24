@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Refine undo scope and documentation quality.
+Tune undo UX timing by navigation type.
 
 ## CURRENT_SUBTASK
-Completed: removed velocity settings from undo history while keeping broader track mutation undo; updated README to match current app behavior.
+Completed: undo/redo now uses two configurable post-navigation delays in `src/app.ts`: `UNDO_PAN_NAVIGATION_APPLY_DELAY_MS` (150) and `UNDO_TELEPORT_NAVIGATION_APPLY_DELAY_MS` (300).
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -44,6 +44,11 @@ Completed: removed velocity settings from undo history while keeping broader tra
   - Keyboard shortcuts:
     - Undo: `Cmd+Z` (macOS) / `Ctrl+Z` (Windows/Linux)
     - Redo: `Shift+Cmd+Z` (macOS), `Ctrl+Shift+Z` or `Ctrl+Y` (Windows/Linux)
+  - Undo/redo map navigation now checks changed geometry against current map bounds:
+    - if any changed point is already on-screen, map position is preserved
+    - if changed points are fully off-screen, map auto-focuses the changed area
+    - when off-screen focus is triggered, edit application waits for map movement completion plus a short configurable delay before applying undo/redo
+    - delay is mode-dependent (`pan` vs `teleport`), determined from center-distance / zoom-delta heuristics in `MapView.classifyUndoNavigationMode`
   - History is still cleared by `hydrateTracks` (initial restore) to start sessions from a clean baseline.
   - Delete/Backspace removes all selected points in one operation.
   - Point delete no longer triggers map auto-fit.
