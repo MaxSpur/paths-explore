@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Add BT-Q1000XT CSV track support.
+Refresh README to match latest peak/editing behavior.
 
 ## CURRENT_SUBTASK
-Completed: parser now supports BT-Q1000XT-style CSV import (including UTC timestamp construction, N/S/E/W hemisphere handling, and per-TRACK-ID splitting), plus CSV export and file-input accept updates.
+Completed: documented `Top Peak`/`Next Peak`, endpoint-anchored translucent popup, and delete follow-up behaviors in `README.md`.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -78,6 +78,22 @@ Completed: parser now supports BT-Q1000XT-style CSV import (including UTC timest
   - Colormap selection is CSV-backed and loaded from discovered files.
   - Map legend now adapts to active metric (`Velocity` or `Acceleration`) including units.
   - Map legend includes `Next Peak`, cycling through highest metric segments and focusing each one.
+  - While editing a track, `Next Peak` scope is filtered to the editing track only (button status/count reflects filtered set).
+  - `Next Peak` now auto-selects the endpoint point of the focused peak segment when editing is active, so point edits can start immediately.
+  - What worked for reliable edit flow: keep endpoint selection tied to peak focus and return keyboard focus to the map, so `Delete/Backspace` immediately applies to the selected endpoint instead of UI text focus.
+  - Legend now has `Top Peak` next to `Next Peak` to jump directly back to the highest-ranked segment (`1/x`).
+  - Ranked-segment cursor continuity now uses `trackId + startPoint.id + endPoint.id` identity, preventing incorrect rank carry-over after point deletion reindexes segment indices.
+  - When a ranked segment disappears after deletion, cursor now falls back to the same rank index (clamped) instead of resetting to `0/x`.
+  - Delete follow-up behavior:
+    - if selection came from `Next Peak` / `Top Peak`, app auto-selects the endpoint of the current ranked segment after rerender.
+    - if selection was manual (point click/area), app auto-selects the next point along the track (or previous when deleting the last point).
+  - Peak-driven delete now also calls map re-focus on the current ranked segment (`MapView.focusCurrentPeakSegment`) so follow-up selection is visible even when outside prior viewport.
+  - Peak-driven delete refocus is intentionally delayed by `PEAK_DELETE_REFOCUS_DELAY_MS` (currently 200ms in `src/app.ts`) for smoother flow right after a delete action.
+  - Delayed refocus is canceled on any new direct selection/background click/clear action to avoid stale timer-based reselection.
+  - Peak popup flicker fix: `MapView` sets a one-render `preserveInfoPopupOnNextRender` flag when focusing a ranked segment, so the selection rerender does not immediately close the just-opened popup.
+  - Segment info popup is now positioned at `segment.endPoint` (the selected endpoint for peak navigation), not midpoint.
+  - Popup/tip visuals are now semi-transparent (`rgba(246,250,248,0.82)`) with lighter shadow to reduce occlusion while reading.
+  - After `Next Peak`, focus is moved from legend controls back to map container to avoid keyboard actions being consumed by focused UI buttons.
   - Map legend includes a colorful, colormap-aligned histogram above the scale with click-cycle modes: `standard` (coarser bins), `precision` (many thin bins, no gaps), `hidden`.
   - Legend histogram includes a compact single-row axis-mode toggle (`L/L`, `L/G`, `G/L`, `G/G`) for linear/log scaling on X and Y independently.
   - Axis-mode toggle is hidden when histogram mode is `hidden` to reduce legend clutter.

@@ -26,8 +26,15 @@ interface RenderOptions {
   velocitySettings?: VelocityViewSettings;
 }
 
+type PointSelectionSource = "point-click" | "peak-nav";
+
 interface MapViewCallbacks {
-  onPointSelected?: (trackId: string, pointId: string, additive: boolean) => void;
+  onPointSelected?: (
+    trackId: string,
+    pointId: string,
+    additive: boolean,
+    source: PointSelectionSource
+  ) => void;
   onPointsMoved?: (trackId: string, updates: PointCoordinateUpdate[]) => void;
   onAreaSelected?: (trackId: string, pointIds: string[], additive: boolean) => void;
   onMapBackgroundClick?: () => void;
@@ -207,6 +214,7 @@ export class MapView {
   private rankedMetricSegments: RankedMetricSegment[] = [];
   private rankedMetricCursor = -1;
   private activeInfoPopup?: L.Popup;
+  private preserveInfoPopupOnNextRender = false;
   private legendHistogramMode: LegendHistogramMode = "standard";
   private legendHistogramAxisMode: LegendHistogramAxisMode = "lin-lin";
   private lastLegendEnabled = false;
@@ -303,7 +311,11 @@ export class MapView {
     this.activeEditingTrackId = options.editingTrackId;
     this.activeEditMode = options.editMode ?? "move";
     this.isHoveringEditablePoint = false;
-    this.clearInfoPopup();
+    if (this.preserveInfoPopupOnNextRender) {
+      this.preserveInfoPopupOnNextRender = false;
+    } else {
+      this.clearInfoPopup();
+    }
     this.resetDragState();
     this.resetMarqueeSelection();
     this.resetLassoSelection();
@@ -406,7 +418,7 @@ export class MapView {
           L.DomEvent.stopPropagation(event);
           const originalEvent = event.originalEvent;
           const additive = originalEvent instanceof MouseEvent ? originalEvent.shiftKey : false;
-          this.callbacks.onPointSelected?.(track.id, point.id, additive);
+          this.callbacks.onPointSelected?.(track.id, point.id, additive, "point-click");
         });
 
         if (track.id === options.editingTrackId && this.activeEditMode === "move") {
@@ -773,8 +785,12 @@ export class MapView {
       maxDisplayValue <= 0
         ? "No timed segments available."
         : `Current max: ${Math.round(maxDisplayValue * 10) / 10} ${unitLabel}`;
+    const activeSegments = this.getActiveRankedMetricSegments();
+    if (this.rankedMetricCursor >= activeSegments.length) {
+      this.rankedMetricCursor = -1;
+    }
     const currentRank = this.rankedMetricCursor >= 0 ? this.rankedMetricCursor + 1 : 0;
-    const totalRanks = this.rankedMetricSegments.length;
+    const totalRanks = activeSegments.length;
 
     this.velocityLegendElement.classList.remove("is-hidden");
     this.velocityLegendElement.innerHTML = `
@@ -798,14 +814,24 @@ export class MapView {
       <div class="velocity-legend-note">${scaleLabel}</div>
       <div class="velocity-legend-note">${availability}</div>
       <div class="velocity-legend-actions">
-        <button
-          type="button"
-          data-action="cycle-top-segment"
-          class="velocity-legend-cycle-btn"
-          ${totalRanks === 0 ? "disabled" : ""}
-        >
-          Next Peak
-        </button>
+        <span class="velocity-legend-cycle-controls">
+          <button
+            type="button"
+            data-action="reset-top-segment"
+            class="velocity-legend-cycle-btn"
+            ${totalRanks === 0 ? "disabled" : ""}
+          >
+            Top Peak
+          </button>
+          <button
+            type="button"
+            data-action="cycle-top-segment"
+            class="velocity-legend-cycle-btn"
+            ${totalRanks === 0 ? "disabled" : ""}
+          >
+            Next Peak
+          </button>
+        </span>
         <span class="velocity-legend-cycle-status">${currentRank}/${totalRanks}</span>
       </div>
     `;
@@ -1003,8 +1029,57 @@ export class MapView {
     return `linear-gradient(90deg, ${stops.join(", ")})`;
   }
 
+  private getRankedMetricSegmentKey(segment: RankedMetricSegment): string {
+    const startId = segment.startPoint.id || `idx-${segment.startIndex}`;
+    const endId = segment.endPoint.id || `idx-${segment.endIndex}`;
+    return `${segment.metric}:${segment.trackId}:${startId}:${endId}`;
+  }
+
+  private getActiveRankedMetricSegments(): RankedMetricSegment[] {
+    if (!this.activeEditingTrackId) {
+      return this.rankedMetricSegments;
+    }
+
+    return this.rankedMetricSegments.filter(
+      (segment) => segment.trackId === this.activeEditingTrackId
+    );
+  }
+
   private setRankedMetricSegments(segments: RankedMetricSegment[]): void {
+    const previousActiveSegments = this.getActiveRankedMetricSegments();
+    const previousCursor = this.rankedMetricCursor;
+    const previousSegment =
+      previousCursor >= 0 ? previousActiveSegments[previousCursor] : undefined;
+    const previousSegmentKey = previousSegment
+      ? this.getRankedMetricSegmentKey(previousSegment)
+      : undefined;
+
     this.rankedMetricSegments = [...segments].sort((a, b) => b.baseValue - a.baseValue);
+
+    const nextActiveSegments = this.getActiveRankedMetricSegments();
+    if (nextActiveSegments.length === 0) {
+      this.rankedMetricCursor = -1;
+      this.updateLegendCycleStatus();
+      return;
+    }
+
+    if (previousSegmentKey) {
+      const nextIndex = nextActiveSegments.findIndex(
+        (segment) => this.getRankedMetricSegmentKey(segment) === previousSegmentKey
+      );
+      if (nextIndex >= 0) {
+        this.rankedMetricCursor = nextIndex;
+        this.updateLegendCycleStatus();
+        return;
+      }
+    }
+
+    if (previousCursor >= 0) {
+      this.rankedMetricCursor = Math.min(previousCursor, nextActiveSegments.length - 1);
+      this.updateLegendCycleStatus();
+      return;
+    }
+
     this.rankedMetricCursor = -1;
     this.updateLegendCycleStatus();
   }
@@ -1228,12 +1303,23 @@ export class MapView {
     }
 
     const button = target.closest<HTMLButtonElement>('button[data-action="cycle-top-segment"]');
-    if (!button) {
+    if (button) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.suppressNextMapClick = true;
+      this.focusNextTopSegment();
+      return;
+    }
+
+    const resetButton = target.closest<HTMLButtonElement>('button[data-action="reset-top-segment"]');
+    if (!resetButton) {
       return;
     }
 
     event.preventDefault();
-    this.focusNextTopSegment();
+    event.stopPropagation();
+    this.suppressNextMapClick = true;
+    this.focusTopMetricSegment();
   };
 
   private onPopupClose = (event: L.PopupEvent): void => {
@@ -1243,23 +1329,128 @@ export class MapView {
   };
 
   private focusNextTopSegment(): void {
-    if (this.rankedMetricSegments.length === 0) {
+    const activeSegments = this.getActiveRankedMetricSegments();
+    if (activeSegments.length === 0) {
       return;
     }
 
-    this.rankedMetricCursor = (this.rankedMetricCursor + 1) % this.rankedMetricSegments.length;
-    const segment = this.rankedMetricSegments[this.rankedMetricCursor];
-    const bounds = L.latLngBounds(segment.latLngs);
-    this.map.fitBounds(bounds.pad(3));
-    this.openSegmentInfoPopup(segment);
+    this.rankedMetricCursor = (this.rankedMetricCursor + 1) % activeSegments.length;
+    const segment = activeSegments[this.rankedMetricCursor];
+    this.focusRankedMetricSegment(segment);
+
+    if (this.activeEditingTrackId && segment.trackId === this.activeEditingTrackId) {
+      const endpointPointId = this.resolvePeakSegmentEndpointPointId(segment);
+      if (endpointPointId) {
+        window.setTimeout(() => {
+          this.callbacks.onPointSelected?.(segment.trackId, endpointPointId, false, "peak-nav");
+        }, 0);
+      }
+      this.focusMapContainer();
+    }
+
     this.updateLegendCycleStatus();
   }
 
+  private focusTopMetricSegment(): void {
+    const activeSegments = this.getActiveRankedMetricSegments();
+    if (activeSegments.length === 0) {
+      return;
+    }
+
+    this.rankedMetricCursor = -1;
+    this.focusNextTopSegment();
+  }
+
+  getCurrentPeakEndpointSelectionTarget(): { trackId: string; pointId: string } | undefined {
+    const segment = this.getCurrentRankedMetricSegment();
+    if (!segment) {
+      return undefined;
+    }
+
+    const pointId = this.resolvePeakSegmentEndpointPointId(segment);
+    if (!pointId) {
+      return undefined;
+    }
+
+    return {
+      trackId: segment.trackId,
+      pointId
+    };
+  }
+
+  focusCurrentPeakSegment(): boolean {
+    const segment = this.getCurrentRankedMetricSegment();
+    if (!segment) {
+      return false;
+    }
+
+    this.focusRankedMetricSegment(segment);
+    return true;
+  }
+
+  private getCurrentRankedMetricSegment(): RankedMetricSegment | undefined {
+    const activeSegments = this.getActiveRankedMetricSegments();
+    if (this.rankedMetricCursor < 0 || this.rankedMetricCursor >= activeSegments.length) {
+      return undefined;
+    }
+
+    return activeSegments[this.rankedMetricCursor];
+  }
+
+  private focusRankedMetricSegment(segment: RankedMetricSegment): void {
+    this.preserveInfoPopupOnNextRender = true;
+    const bounds = L.latLngBounds(segment.latLngs);
+    this.map.fitBounds(bounds.pad(3));
+    this.openSegmentInfoPopup(segment);
+  }
+
+  private resolvePeakSegmentEndpointPointId(segment: RankedMetricSegment): string | undefined {
+    const track = this.latestTracks.find((candidate) => candidate.id === segment.trackId);
+    if (!track) {
+      return segment.endPoint.id || undefined;
+    }
+
+    if (
+      segment.endPoint.id &&
+      track.points.some((point) => point.id === segment.endPoint.id)
+    ) {
+      return segment.endPoint.id;
+    }
+
+    const point = track.points[segment.endIndex];
+    if (point?.id) {
+      return point.id;
+    }
+
+    let nearest: TrackPoint | undefined;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of track.points) {
+      const latDelta = candidate.lat - segment.endPoint.lat;
+      const lngDelta = candidate.lng - segment.endPoint.lng;
+      const distance = latDelta * latDelta + lngDelta * lngDelta;
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearest = candidate;
+      }
+    }
+
+    return nearest?.id;
+  }
+
+  private focusMapContainer(): void {
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && activeElement !== this.map.getContainer()) {
+      activeElement.blur();
+    }
+
+    const mapContainer = this.map.getContainer();
+    if (typeof mapContainer.focus === "function") {
+      mapContainer.focus({ preventScroll: true });
+    }
+  }
+
   private openSegmentInfoPopup(segment: RankedMetricSegment): void {
-    const midpoint = L.latLng(
-      (segment.startPoint.lat + segment.endPoint.lat) / 2,
-      (segment.startPoint.lng + segment.endPoint.lng) / 2
-    );
+    const endpoint = L.latLng(segment.endPoint.lat, segment.endPoint.lng);
 
     const formatPoint = (point: Track["points"][number]): string =>
       `${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}`;
@@ -1298,7 +1489,7 @@ export class MapView {
       autoPan: true,
       className: "segment-info-popup"
     })
-      .setLatLng(midpoint)
+      .setLatLng(endpoint)
       .setContent(popupHtml);
     popup.openOn(this.map);
     this.activeInfoPopup = popup;
@@ -1318,17 +1509,22 @@ export class MapView {
       return;
     }
 
+    const activeSegments = this.getActiveRankedMetricSegments();
+    if (this.rankedMetricCursor >= activeSegments.length) {
+      this.rankedMetricCursor = -1;
+    }
+
     const status = this.velocityLegendElement.querySelector<HTMLElement>(".velocity-legend-cycle-status");
     if (status) {
       const currentRank = this.rankedMetricCursor >= 0 ? this.rankedMetricCursor + 1 : 0;
-      status.textContent = `${currentRank}/${this.rankedMetricSegments.length}`;
+      status.textContent = `${currentRank}/${activeSegments.length}`;
     }
 
-    const button = this.velocityLegendElement.querySelector<HTMLButtonElement>(
-      'button[data-action="cycle-top-segment"]'
+    const buttons = this.velocityLegendElement.querySelectorAll<HTMLButtonElement>(
+      'button[data-action="cycle-top-segment"], button[data-action="reset-top-segment"]'
     );
-    if (button) {
-      button.disabled = this.rankedMetricSegments.length === 0;
+    for (const button of buttons) {
+      button.disabled = activeSegments.length === 0;
     }
   }
 

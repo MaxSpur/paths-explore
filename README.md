@@ -28,6 +28,7 @@ Map-first GPX/KML/GeoJSON/CSV viewer and editor built with Vite + TypeScript + L
 - Multi-select points with Shift behaviors.
 - Move selected points by dragging; connected segments update live while dragging.
 - Delete selected points with `Delete`/`Backspace`.
+- After manual delete, selection advances to the next point on that track (or previous if last point was deleted).
 - `Escape` clears selection.
 - Hold `Space` to temporarily pan while in any edit mode.
 
@@ -53,10 +54,14 @@ Map-first GPX/KML/GeoJSON/CSV viewer and editor built with Vite + TypeScript + L
 - CSV colormap auto-discovery from `src/colormaps/*.csv`.
 - Perceptually uniform colormaps for velocity and acceleration visualization.
 - `Info` mode can open segment popups with metric/distance/duration/point details.
+- Peak popups are anchored to the selected segment endpoint (not midpoint) and use a translucent panel to reduce path occlusion.
 - Legend supports:
   - histogram mode cycle (`standard`, `precision`, `hidden`)
   - axis scaling combinations (`L/L`, `L/G`, `G/L`, `G/G`)
-  - next-peak navigation across ranked segments
+  - ranked peak navigation with `Top Peak` (jump to rank `1/x`) and `Next Peak`
+  - when editing is active, peak ranking/filtering is scoped to the editing track
+  - peak navigation auto-selects the ranked endpoint for immediate move/delete
+  - after peak-driven delete, rank continuity is preserved and map refocus/selection is reapplied with a short delay
   - corner resize when histogram is visible
 
 ## Local development

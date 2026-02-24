@@ -21,12 +21,15 @@ interface RenderOptions {
   fitToVisible?: boolean;
 }
 
+type PointSelectionContext = "none" | "point-click" | "area-select" | "peak-nav";
+
 const VELOCITY_SETTINGS_STORAGE_KEY = "path-segments-velocity-settings-v1";
 const MAP_VIEW_SETTINGS_STORAGE_KEY = "path-segments-map-view-settings-v1";
 const VELOCITY_MAX_LIMIT = 350;
 const MAP_FILTER_PERCENT_LIMIT = 100;
 const UNDO_PAN_NAVIGATION_APPLY_DELAY_MS = 150;
 const UNDO_TELEPORT_NAVIGATION_APPLY_DELAY_MS = 300;
+const PEAK_DELETE_REFOCUS_DELAY_MS = 200;
 
 const DEFAULT_VELOCITY_SETTINGS: VelocityViewSettings = {
   enabled: false,
@@ -280,6 +283,28 @@ function collectUndoNavigationPoints(
   return Array.from(dedupedByKey.values());
 }
 
+function getFollowupPointIdAfterDeletion(
+  previousTrack: Track | undefined,
+  nextTrack: Track | undefined,
+  deletedPointIds: string[]
+): string | undefined {
+  if (!previousTrack || !nextTrack || nextTrack.points.length === 0 || deletedPointIds.length === 0) {
+    return undefined;
+  }
+
+  const deletedSet = new Set(deletedPointIds);
+  const deletedIndices = previousTrack.points
+    .map((point, index) => (deletedSet.has(point.id) ? index : -1))
+    .filter((index) => index >= 0);
+  if (deletedIndices.length === 0) {
+    return undefined;
+  }
+
+  const anchorIndex = Math.min(...deletedIndices);
+  const nextIndex = Math.min(anchorIndex, nextTrack.points.length - 1);
+  return nextTrack.points[nextIndex]?.id;
+}
+
 function delayMs(milliseconds: number): Promise<void> {
   if (milliseconds <= 0) {
     return Promise.resolve();
@@ -319,7 +344,7 @@ export function createApp(root: HTMLElement): void {
     <div class="app-layout">
       <aside id="sidebar" class="sidebar"></aside>
       <main class="map-shell">
-        <div id="map" class="map-view" aria-label="Track map"></div>
+        <div id="map" class="map-view" aria-label="Track map" tabindex="-1"></div>
       </main>
     </div>
   `;
@@ -337,6 +362,17 @@ export function createApp(root: HTMLElement): void {
   let latestSummary: ImportSummary | undefined;
   let sidebar: SidebarView;
   let mapView: MapView;
+  let lastPointSelectionSource: PointSelectionContext = "none";
+  let pendingPeakDeleteRefocusTimerId: number | undefined;
+
+  const cancelPendingPeakDeleteRefocus = (): void => {
+    if (pendingPeakDeleteRefocusTimerId === undefined) {
+      return;
+    }
+
+    window.clearTimeout(pendingPeakDeleteRefocusTimerId);
+    pendingPeakDeleteRefocusTimerId = undefined;
+  };
 
   const setVelocitySettings = (next: VelocityViewSettings): boolean => {
     const normalized = normalizeVelocitySettings(next);
@@ -405,7 +441,9 @@ export function createApp(root: HTMLElement): void {
   };
 
   mapView = new MapView(mapElement, {
-    onPointSelected: (trackId, pointId, additive) => {
+    onPointSelected: (trackId, pointId, additive, source) => {
+      cancelPendingPeakDeleteRefocus();
+      lastPointSelectionSource = source;
       store.togglePointSelection(trackId, pointId, additive);
       render();
     },
@@ -414,10 +452,14 @@ export function createApp(root: HTMLElement): void {
       render();
     },
     onAreaSelected: (trackId, pointIds, additive) => {
+      cancelPendingPeakDeleteRefocus();
+      lastPointSelectionSource = "area-select";
       store.selectPoints(trackId, pointIds, additive);
       render();
     },
     onMapBackgroundClick: () => {
+      cancelPendingPeakDeleteRefocus();
+      lastPointSelectionSource = "none";
       store.setSelectedPoints(undefined, []);
       render();
     },
@@ -608,10 +650,72 @@ export function createApp(root: HTMLElement): void {
   bindKeyboardEditor({
     getState: () => store.getState(),
     deleteSelectedPoints: () => {
+      cancelPendingPeakDeleteRefocus();
+      const previousState = store.getState();
+      const selectedTrackId = previousState.selectedTrackId;
+      const deletedPointIds = [...previousState.selectedPointIds];
+      const previousTrack = selectedTrackId
+        ? previousState.tracks.find((track) => track.id === selectedTrackId)
+        : undefined;
+
       store.deleteSelectedPoints();
+      render();
+
+      if (!selectedTrackId || deletedPointIds.length === 0) {
+        lastPointSelectionSource = "none";
+        return;
+      }
+
+      let followupSelection = undefined as
+        | {
+            trackId: string;
+            pointId: string;
+            source: PointSelectionContext;
+          }
+        | undefined;
+
+      if (lastPointSelectionSource === "peak-nav") {
+        pendingPeakDeleteRefocusTimerId = window.setTimeout(() => {
+          pendingPeakDeleteRefocusTimerId = undefined;
+          mapView.focusCurrentPeakSegment();
+          const target = mapView.getCurrentPeakEndpointSelectionTarget();
+          if (!target) {
+            lastPointSelectionSource = "none";
+            return;
+          }
+
+          store.setSelectedPoints(target.trackId, [target.pointId]);
+          lastPointSelectionSource = "peak-nav";
+          render();
+        }, PEAK_DELETE_REFOCUS_DELAY_MS);
+        return;
+      }
+
+      if (!followupSelection) {
+        const nextState = store.getState();
+        const nextTrack = nextState.tracks.find((track) => track.id === selectedTrackId);
+        const pointId = getFollowupPointIdAfterDeletion(previousTrack, nextTrack, deletedPointIds);
+        if (pointId) {
+          followupSelection = {
+            trackId: selectedTrackId,
+            pointId,
+            source: "point-click"
+          };
+        }
+      }
+
+      if (!followupSelection) {
+        lastPointSelectionSource = "none";
+        return;
+      }
+
+      store.setSelectedPoints(followupSelection.trackId, [followupSelection.pointId]);
+      lastPointSelectionSource = followupSelection.source;
       render();
     },
     clearSelection: () => {
+      cancelPendingPeakDeleteRefocus();
+      lastPointSelectionSource = "none";
       store.setSelectedPoints(undefined, []);
       render();
     },
