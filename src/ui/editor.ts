@@ -4,6 +4,8 @@ interface KeyboardEditorOptions {
   getState: () => AppState;
   deleteSelectedPoints: () => void;
   clearSelection: () => void;
+  undoEdits: () => void;
+  redoEdits: () => void;
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -21,6 +23,24 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export function bindKeyboardEditor(options: KeyboardEditorOptions): () => void {
   const handler = (event: KeyboardEvent): void => {
     if (isTypingTarget(event.target)) {
+      return;
+    }
+
+    const hasModifier = event.metaKey || event.ctrlKey;
+    const isUndoShortcut = hasModifier && !event.altKey && event.key.toLowerCase() === "z";
+    const isRedoShortcut =
+      (hasModifier && !event.altKey && event.shiftKey && event.key.toLowerCase() === "z") ||
+      (event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === "y");
+
+    if (isRedoShortcut) {
+      event.preventDefault();
+      options.redoEdits();
+      return;
+    }
+
+    if (isUndoShortcut) {
+      event.preventDefault();
+      options.undoEdits();
       return;
     }
 

@@ -281,6 +281,14 @@ export function createApp(root: HTMLElement): void {
     clearSelection: () => {
       store.setSelectedPoints(undefined, []);
       render();
+    },
+    undoEdits: () => {
+      store.undoEdits();
+      render();
+    },
+    redoEdits: () => {
+      store.redoEdits();
+      render();
     }
   });
 

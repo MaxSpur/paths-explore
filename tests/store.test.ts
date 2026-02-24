@@ -131,4 +131,41 @@ describe("track store", () => {
       "track-1"
     ]);
   });
+
+  it("undoes and redoes point moves", () => {
+    const store = new TrackStore();
+    store.addTracks([buildTrack("track-1", "editable")]);
+
+    store.movePoint("track-1", "track-1-b", 40, -100);
+    let point = store.getState().tracks[0].points[1];
+    expect(point.lat).toBe(40);
+    expect(point.lng).toBe(-100);
+    expect(store.canUndoEdits()).toBe(true);
+
+    store.undoEdits();
+    point = store.getState().tracks[0].points[1];
+    expect(point.lat).toBe(37.1);
+    expect(point.lng).toBe(-122.1);
+    expect(store.canRedoEdits()).toBe(true);
+
+    store.redoEdits();
+    point = store.getState().tracks[0].points[1];
+    expect(point.lat).toBe(40);
+    expect(point.lng).toBe(-100);
+  });
+
+  it("undoes deletions and clears redo when new edits are made", () => {
+    const store = new TrackStore();
+    store.addTracks([buildTrack("track-1", "editable")]);
+
+    store.setSelectedPoints("track-1", ["track-1-a", "track-1-b"]);
+    store.deleteSelectedPoints();
+    expect(store.getState().tracks[0].points).toHaveLength(1);
+
+    store.undoEdits();
+    expect(store.getState().tracks[0].points).toHaveLength(3);
+
+    store.movePoint("track-1", "track-1-c", 41, -101);
+    expect(store.canRedoEdits()).toBe(false);
+  });
 });

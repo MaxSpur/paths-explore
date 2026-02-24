@@ -2,6 +2,15 @@ import { getTrackColor } from "./colors";
 import type { AppState, PointCoordinateUpdate, Track, TrackPoint } from "./types";
 
 type StateListener = (state: AppState) => void;
+interface EditHistorySnapshot {
+  tracks: Track[];
+  selectedTrackId?: string;
+  editingTrackId?: string;
+  selectedPointId?: string;
+  selectedPointIds: string[];
+}
+
+const EDIT_HISTORY_LIMIT = 100;
 
 function makeId(prefix: string): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -21,6 +30,8 @@ function ensurePointIds(points: TrackPoint[]): TrackPoint[] {
 export class TrackStore {
   private state: AppState = { tracks: [], selectedPointIds: [] };
   private listeners = new Set<StateListener>();
+  private editHistoryPast: EditHistorySnapshot[] = [];
+  private editHistoryFuture: EditHistorySnapshot[] = [];
 
   private normalizeTrackGeometryVisibility(
     track: Track,
@@ -84,6 +95,7 @@ export class TrackStore {
       ...this.state,
       tracks: [...this.state.tracks, ...normalized]
     };
+    this.clearEditHistory();
 
     this.emit();
   }
@@ -103,6 +115,7 @@ export class TrackStore {
       tracks: normalized,
       selectedPointIds: []
     };
+    this.clearEditHistory();
 
     this.emit();
   }
@@ -116,6 +129,7 @@ export class TrackStore {
       selectedPointId: undefined,
       selectedPointIds: []
     };
+    this.clearEditHistory();
 
     this.emit();
   }
@@ -195,6 +209,7 @@ export class TrackStore {
         track.id === trackId ? { ...track, visible } : track
       )
     };
+    this.clearEditHistory();
 
     this.emit();
   }
@@ -218,6 +233,7 @@ export class TrackStore {
         };
       })
     };
+    this.clearEditHistory();
 
     this.emit();
   }
@@ -241,6 +257,7 @@ export class TrackStore {
         };
       })
     };
+    this.clearEditHistory();
 
     this.emit();
   }
@@ -265,18 +282,45 @@ export class TrackStore {
       ...this.state,
       tracks
     };
+    this.clearEditHistory();
 
     this.emit();
   }
 
   updateTrackPoints(trackId: string, points: TrackPoint[]): void {
+    const existingTrack = this.state.tracks.find((track) => track.id === trackId);
+    if (!existingTrack) {
+      return;
+    }
+
+    const normalizedPoints = ensurePointIds(points);
+    const geometryChanged =
+      existingTrack.points.length !== normalizedPoints.length ||
+      existingTrack.points.some((point, index) => {
+        const nextPoint = normalizedPoints[index];
+        return (
+          !nextPoint ||
+          point.id !== nextPoint.id ||
+          point.lat !== nextPoint.lat ||
+          point.lng !== nextPoint.lng ||
+          point.ele !== nextPoint.ele ||
+          point.time !== nextPoint.time
+        );
+      });
+
+    if (!geometryChanged) {
+      return;
+    }
+
+    this.pushEditSnapshot();
+
     this.state = {
       ...this.state,
       tracks: this.state.tracks.map((track) =>
         track.id === trackId
           ? {
               ...track,
-              points: ensurePointIds(points)
+              points: normalizedPoints
             }
           : track
       )
@@ -291,26 +335,45 @@ export class TrackStore {
     }
 
     const updatesById = new Map(updates.map((update) => [update.pointId, update]));
-    this.state = {
-      ...this.state,
-      tracks: this.state.tracks.map((track) => {
-        if (track.id !== trackId) {
-          return track;
+    let movedCount = 0;
+    const nextTracks = this.state.tracks.map((track) => {
+      if (track.id !== trackId) {
+        return track;
+      }
+
+      const nextPoints = track.points.map((point) => {
+        const update = updatesById.get(point.id);
+        if (!update) {
+          return point;
         }
 
+        if (point.lat === update.lat && point.lng === update.lng) {
+          return point;
+        }
+
+        movedCount += 1;
         return {
-          ...track,
-          points: track.points.map((point) =>
-            updatesById.has(point.id)
-              ? {
-                  ...point,
-                  lat: updatesById.get(point.id)!.lat,
-                  lng: updatesById.get(point.id)!.lng
-                }
-              : point
-          )
+          ...point,
+          lat: update.lat,
+          lng: update.lng
         };
-      })
+      });
+
+      return {
+        ...track,
+        points: nextPoints
+      };
+    });
+
+    if (movedCount === 0) {
+      return;
+    }
+
+    this.pushEditSnapshot();
+
+    this.state = {
+      ...this.state,
+      tracks: nextTracks
     };
 
     this.emit();
@@ -328,24 +391,115 @@ export class TrackStore {
     }
 
     const selectedSet = new Set(selectedPointIds);
+    let removedCount = 0;
+    const nextTracks = this.state.tracks.map((track) => {
+      if (track.id !== selectedTrackId) {
+        return track;
+      }
+
+      const nextPoints = track.points.filter((point) => !selectedSet.has(point.id));
+      removedCount += track.points.length - nextPoints.length;
+
+      return {
+        ...track,
+        points: nextPoints
+      };
+    });
+
+    if (removedCount === 0) {
+      return;
+    }
+
+    this.pushEditSnapshot();
 
     this.state = {
       ...this.state,
-      tracks: this.state.tracks.map((track) => {
-        if (track.id !== selectedTrackId) {
-          return track;
-        }
-
-        return {
-          ...track,
-          points: track.points.filter((point) => !selectedSet.has(point.id))
-        };
-      }),
+      tracks: nextTracks,
       selectedPointId: undefined,
       selectedPointIds: []
     };
 
     this.emit();
+  }
+
+  canUndoEdits(): boolean {
+    return this.editHistoryPast.length > 0;
+  }
+
+  canRedoEdits(): boolean {
+    return this.editHistoryFuture.length > 0;
+  }
+
+  undoEdits(): void {
+    if (this.editHistoryPast.length === 0) {
+      return;
+    }
+
+    const currentSnapshot = this.captureEditSnapshot();
+    const previousSnapshot = this.editHistoryPast.pop();
+    if (!previousSnapshot) {
+      return;
+    }
+
+    this.editHistoryFuture.push(currentSnapshot);
+    this.state = this.restoreEditSnapshot(previousSnapshot);
+    this.emit();
+  }
+
+  redoEdits(): void {
+    if (this.editHistoryFuture.length === 0) {
+      return;
+    }
+
+    const currentSnapshot = this.captureEditSnapshot();
+    const nextSnapshot = this.editHistoryFuture.pop();
+    if (!nextSnapshot) {
+      return;
+    }
+
+    this.editHistoryPast.push(currentSnapshot);
+    this.state = this.restoreEditSnapshot(nextSnapshot);
+    this.emit();
+  }
+
+  private clearEditHistory(): void {
+    this.editHistoryPast = [];
+    this.editHistoryFuture = [];
+  }
+
+  private pushEditSnapshot(): void {
+    this.editHistoryPast.push(this.captureEditSnapshot());
+    if (this.editHistoryPast.length > EDIT_HISTORY_LIMIT) {
+      this.editHistoryPast.shift();
+    }
+    this.editHistoryFuture = [];
+  }
+
+  private captureEditSnapshot(): EditHistorySnapshot {
+    return {
+      tracks: this.cloneTracks(this.state.tracks),
+      selectedTrackId: this.state.selectedTrackId,
+      editingTrackId: this.state.editingTrackId,
+      selectedPointId: this.state.selectedPointId,
+      selectedPointIds: [...this.state.selectedPointIds]
+    };
+  }
+
+  private restoreEditSnapshot(snapshot: EditHistorySnapshot): AppState {
+    return {
+      tracks: this.cloneTracks(snapshot.tracks),
+      selectedTrackId: snapshot.selectedTrackId,
+      editingTrackId: snapshot.editingTrackId,
+      selectedPointId: snapshot.selectedPointId,
+      selectedPointIds: [...snapshot.selectedPointIds]
+    };
+  }
+
+  private cloneTracks(tracks: Track[]): Track[] {
+    return tracks.map((track) => ({
+      ...track,
+      points: track.points.map((point) => ({ ...point }))
+    }));
   }
 
   private emit(): void {

@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Improve velocity legend usability with resize support and persistent view settings.
+Implement an undo buffer for track point editing workflows.
 
 ## CURRENT_SUBTASK
-Completed: point dragging now updates attached segment geometry live (including velocity-segment layers), not only on mouse-up.
+Completed: bounded undo/redo history for point move/delete edits with keyboard shortcuts.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -39,6 +39,11 @@ Completed: point dragging now updates attached segment geometry live (including 
   - Shift-click toggles points into/out of the active selection (within the same track context).
   - Dragging one selected point in edit mode moves all selected points together.
   - During drag, connected segments now update live for moved points (including velocity-colored per-segment polylines), so geometry follows the cursor before mouse release.
+  - Track edit history now supports undo/redo for point edits (`movePoints`, `deleteSelectedPoints`, and `updateTrackPoints`) with bounded in-memory history.
+  - Keyboard shortcuts:
+    - Undo: `Cmd+Z` (macOS) / `Ctrl+Z` (Windows/Linux)
+    - Redo: `Shift+Cmd+Z` (macOS), `Ctrl+Shift+Z` or `Ctrl+Y` (Windows/Linux)
+  - Undo history is intentionally cleared on non-edit track mutations (import/hydrate/remove/reorder/visibility toggles) to avoid reverting unrelated UI/track state.
   - Delete/Backspace removes all selected points in one operation.
   - Point delete no longer triggers map auto-fit.
   - Leaflet default Shift box-zoom is disabled; custom Shift-drag marquee now selects points in the active editing track.
