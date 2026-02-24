@@ -2,6 +2,7 @@ export type SupportedFormat = "gpx" | "kml" | "geojson";
 export type EditInteractionMode = "move" | "marquee" | "lasso" | "info";
 export type VelocityScaleMode = "auto" | "fixed";
 export type SegmentColorMetric = "velocity" | "acceleration";
+export type MapBaseStyle = "osm-standard" | "carto-light" | "carto-dark" | "carto-voyager";
 
 export interface VelocityViewSettings {
   enabled: boolean;
@@ -9,6 +10,12 @@ export interface VelocityViewSettings {
   scaleMode: VelocityScaleMode;
   fixedMax: number;
   colormapId: string;
+}
+
+export interface MapViewSettings {
+  baseStyle: MapBaseStyle;
+  darkenPercent: number;
+  desaturatePercent: number;
 }
 
 export interface TrackPoint {

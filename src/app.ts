@@ -5,7 +5,15 @@ import { MapView, type UndoNavigationMode } from "./map/mapView";
 import { computeVelocityScaleInfo } from "./map/velocity";
 import { COLORMAPS, DEFAULT_COLORMAP_ID, getColormapById } from "./colormaps";
 import { TrackStore } from "./model/store";
-import type { AppState, EditInteractionMode, ImportSummary, Track, VelocityViewSettings } from "./model/types";
+import type {
+  AppState,
+  EditInteractionMode,
+  ImportSummary,
+  MapBaseStyle,
+  MapViewSettings,
+  Track,
+  VelocityViewSettings
+} from "./model/types";
 import { bindKeyboardEditor } from "./ui/editor";
 import { SidebarView } from "./ui/sidebar";
 
@@ -14,7 +22,9 @@ interface RenderOptions {
 }
 
 const VELOCITY_SETTINGS_STORAGE_KEY = "path-segments-velocity-settings-v1";
+const MAP_VIEW_SETTINGS_STORAGE_KEY = "path-segments-map-view-settings-v1";
 const VELOCITY_MAX_LIMIT = 350;
+const MAP_FILTER_PERCENT_LIMIT = 100;
 const UNDO_PAN_NAVIGATION_APPLY_DELAY_MS = 150;
 const UNDO_TELEPORT_NAVIGATION_APPLY_DELAY_MS = 300;
 
@@ -25,9 +35,24 @@ const DEFAULT_VELOCITY_SETTINGS: VelocityViewSettings = {
   fixedMax: 60,
   colormapId: DEFAULT_COLORMAP_ID
 };
+const DEFAULT_MAP_VIEW_SETTINGS: MapViewSettings = {
+  baseStyle: "osm-standard",
+  darkenPercent: 0,
+  desaturatePercent: 0
+};
+const MAP_BASE_STYLES = new Set<MapBaseStyle>([
+  "osm-standard",
+  "carto-light",
+  "carto-dark",
+  "carto-voyager"
+]);
 
 function clampVelocityFixedMax(value: number): number {
   return Math.max(0, Math.min(VELOCITY_MAX_LIMIT, value));
+}
+
+function clampMapFilterPercent(value: number): number {
+  return Math.max(0, Math.min(MAP_FILTER_PERCENT_LIMIT, value));
 }
 
 function normalizeVelocitySettings(
@@ -53,6 +78,32 @@ function normalizeVelocitySettings(
   };
 }
 
+function normalizeMapViewSettings(
+  settings: Partial<MapViewSettings> | null | undefined
+): MapViewSettings {
+  const baseStyle = MAP_BASE_STYLES.has(settings?.baseStyle as MapBaseStyle)
+    ? (settings?.baseStyle as MapBaseStyle)
+    : DEFAULT_MAP_VIEW_SETTINGS.baseStyle;
+  const rawDarken =
+    typeof settings?.darkenPercent === "number"
+      ? settings.darkenPercent
+      : Number.parseFloat(String(settings?.darkenPercent ?? Number.NaN));
+  const rawDesaturate =
+    typeof settings?.desaturatePercent === "number"
+      ? settings.desaturatePercent
+      : Number.parseFloat(String(settings?.desaturatePercent ?? Number.NaN));
+
+  return {
+    baseStyle,
+    darkenPercent: Number.isFinite(rawDarken)
+      ? clampMapFilterPercent(rawDarken)
+      : DEFAULT_MAP_VIEW_SETTINGS.darkenPercent,
+    desaturatePercent: Number.isFinite(rawDesaturate)
+      ? clampMapFilterPercent(rawDesaturate)
+      : DEFAULT_MAP_VIEW_SETTINGS.desaturatePercent
+  };
+}
+
 function loadVelocitySettings(): VelocityViewSettings {
   if (typeof localStorage === "undefined") {
     return { ...DEFAULT_VELOCITY_SETTINGS };
@@ -71,6 +122,24 @@ function loadVelocitySettings(): VelocityViewSettings {
   }
 }
 
+function loadMapViewSettings(): MapViewSettings {
+  if (typeof localStorage === "undefined") {
+    return { ...DEFAULT_MAP_VIEW_SETTINGS };
+  }
+
+  try {
+    const raw = localStorage.getItem(MAP_VIEW_SETTINGS_STORAGE_KEY);
+    if (!raw) {
+      return { ...DEFAULT_MAP_VIEW_SETTINGS };
+    }
+
+    const parsed = JSON.parse(raw) as Partial<MapViewSettings>;
+    return normalizeMapViewSettings(parsed);
+  } catch {
+    return { ...DEFAULT_MAP_VIEW_SETTINGS };
+  }
+}
+
 function saveVelocitySettings(settings: VelocityViewSettings): void {
   if (typeof localStorage === "undefined") {
     return;
@@ -78,6 +147,18 @@ function saveVelocitySettings(settings: VelocityViewSettings): void {
 
   try {
     localStorage.setItem(VELOCITY_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  } catch {
+    // Ignore persistence failures (quota/private mode).
+  }
+}
+
+function saveMapViewSettings(settings: MapViewSettings): void {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+
+  try {
+    localStorage.setItem(MAP_VIEW_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
   } catch {
     // Ignore persistence failures (quota/private mode).
   }
@@ -93,6 +174,14 @@ function areVelocitySettingsEqual(
     left.scaleMode === right.scaleMode &&
     left.fixedMax === right.fixedMax &&
     left.colormapId === right.colormapId
+  );
+}
+
+function areMapViewSettingsEqual(left: MapViewSettings, right: MapViewSettings): boolean {
+  return (
+    left.baseStyle === right.baseStyle &&
+    left.darkenPercent === right.darkenPercent &&
+    left.desaturatePercent === right.desaturatePercent
   );
 }
 
@@ -238,7 +327,9 @@ export function createApp(root: HTMLElement): void {
 
   let editMode: EditInteractionMode = "move";
   let velocitySettings: VelocityViewSettings = loadVelocitySettings();
+  let mapViewSettings: MapViewSettings = loadMapViewSettings();
   saveVelocitySettings(velocitySettings);
+  saveMapViewSettings(mapViewSettings);
   const store = new TrackStore();
   const persistence = createTrackPersistence();
   let latestSummary: ImportSummary | undefined;
@@ -253,6 +344,17 @@ export function createApp(root: HTMLElement): void {
 
     velocitySettings = normalized;
     saveVelocitySettings(velocitySettings);
+    return true;
+  };
+
+  const setMapViewSettings = (next: MapViewSettings): boolean => {
+    const normalized = normalizeMapViewSettings(next);
+    if (areMapViewSettingsEqual(normalized, mapViewSettings)) {
+      return false;
+    }
+
+    mapViewSettings = normalized;
+    saveMapViewSettings(mapViewSettings);
     return true;
   };
 
@@ -282,7 +384,15 @@ export function createApp(root: HTMLElement): void {
         : state.tracks;
     const velocityScaleInfo = computeVelocityScaleInfo(velocityScaleTracks, velocitySettings);
 
-    sidebar.render(state, latestSummary, editMode, velocitySettings, velocityScaleInfo.maxDisplayValue);
+    sidebar.render(
+      state,
+      latestSummary,
+      editMode,
+      velocitySettings,
+      velocityScaleInfo.maxDisplayValue,
+      mapViewSettings
+    );
+    mapView.setMapViewSettings(mapViewSettings);
     mapView.renderTracks(state.tracks, {
       editingTrackId: state.editingTrackId,
       selectedPointIds: state.selectedPointIds,
@@ -426,6 +536,35 @@ export function createApp(root: HTMLElement): void {
       setVelocitySettings({
         ...velocitySettings,
         colormapId
+      });
+      render();
+    },
+    onMapBaseStyleChange: (baseStyle) => {
+      setMapViewSettings({
+        ...mapViewSettings,
+        baseStyle
+      });
+      render();
+    },
+    onMapDarkenChange: (darkenPercent) => {
+      if (!Number.isFinite(darkenPercent)) {
+        return;
+      }
+
+      setMapViewSettings({
+        ...mapViewSettings,
+        darkenPercent: clampMapFilterPercent(darkenPercent)
+      });
+      render();
+    },
+    onMapDesaturateChange: (desaturatePercent) => {
+      if (!Number.isFinite(desaturatePercent)) {
+        return;
+      }
+
+      setMapViewSettings({
+        ...mapViewSettings,
+        desaturatePercent: clampMapFilterPercent(desaturatePercent)
       });
       render();
     }

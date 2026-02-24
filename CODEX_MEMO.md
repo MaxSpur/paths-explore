@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Add legend-scale colormap cycling shortcut.
+Add map-style and base-map filter controls.
 
 ## CURRENT_SUBTASK
-Completed: clicking the legend color scale now cycles through discovered colormaps; hover tooltip shows current colormap name.
+Completed: fixed Leaflet basemap initialization crash by avoiding `subdomains: undefined` and setting OSM default subdomains (`abc`).
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -138,8 +138,14 @@ Completed: clicking the legend color scale now cycles through discovered colorma
   - Reorder glyphs now use borderless typographic symbols (`▲/△`, `▼/▽`) with tighter alignment.
   - Rendering is bottom-to-top so tracks near the top of the list draw on top.
 - Sidebar layout:
-  - Main sections (`Import`, `Edit`, `Velocity`, `Tracks`) support collapse and up/down reorder controls.
+  - Main sections (`Import`, `Edit`, `Map`, `Velocity`, `Tracks`) support collapse and up/down reorder controls.
   - Section ordering and collapsed state are stored in `localStorage` (`path-segments-sidebar-layout-v1`) and restored on reload.
+- Basemap styling:
+  - `Map` sidebar section now controls basemap style (`OSM Standard`, `CARTO Light`, `CARTO Dark`, `CARTO Voyager`).
+  - Additional per-session visualization filters: `darken` and `desaturate` sliders (0..100) applied via CSS filter on Leaflet `tilePane`.
+  - Track vectors are unaffected by these filters because styling is applied only to tile layers.
+  - Map view settings are persisted in localStorage (`path-segments-map-view-settings-v1`) and excluded from undo history.
+  - Leaflet `L.tileLayer` options must not include `subdomains` when undefined; OSM style now sets `abc` explicitly and other styles set options conditionally.
 - Import/status:
   - Former standalone `Status` section merged into `Import`.
   - Import status is now one compact line: loaded total + last import result (errors still highlighted).

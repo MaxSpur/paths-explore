@@ -242,6 +242,11 @@ input {
   gap: 0.5rem;
 }
 
+.panel-map {
+  display: grid;
+  gap: 0.5rem;
+}
+
 .segmented-control {
   display: grid;
   gap: 0.35rem;
@@ -300,14 +305,42 @@ input {
   color: var(--muted);
 }
 
+.map-field {
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.83rem;
+  color: var(--muted);
+}
+
 .velocity-field select,
-.velocity-field input {
+.velocity-field input,
+.map-field select {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
   padding: 0.35rem 0.45rem;
   color: var(--text);
   background: #fff;
+}
+
+.map-filter-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.map-filter-row input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.map-filter-value {
+  min-width: 2.65rem;
+  text-align: right;
+  font-size: 0.8rem;
+  color: #3e5950;
 }
 
 .velocity-field input:disabled,

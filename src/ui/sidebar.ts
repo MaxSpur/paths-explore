@@ -2,16 +2,24 @@ import type {
   AppState,
   EditInteractionMode,
   ImportSummary,
+  MapBaseStyle,
+  MapViewSettings,
   SegmentColorMetric,
   VelocityScaleMode,
   VelocityViewSettings
 } from "../model/types";
 import { COLORMAPS, DEFAULT_COLORMAP_ID } from "../colormaps";
 
-const SIDEBAR_SECTION_IDS = ["import", "edit", "velocity", "tracks"] as const;
+const SIDEBAR_SECTION_IDS = ["import", "edit", "map", "velocity", "tracks"] as const;
 type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 const SIDEBAR_LAYOUT_STORAGE_KEY = "path-segments-sidebar-layout-v1";
 type VelocityHeaderMode = "off" | SegmentColorMetric;
+const MAP_STYLE_OPTIONS: Array<{ id: MapBaseStyle; label: string }> = [
+  { id: "osm-standard", label: "OSM Standard" },
+  { id: "carto-light", label: "CARTO Light" },
+  { id: "carto-dark", label: "CARTO Dark" },
+  { id: "carto-voyager", label: "CARTO Voyager" }
+];
 
 interface SidebarLayoutPrefs {
   order: SidebarSectionId[];
@@ -66,6 +74,9 @@ interface SidebarCallbacks {
   onVelocityScaleModeChange: (mode: VelocityScaleMode) => void;
   onVelocityFixedMaxChange: (maxValue: number) => void;
   onVelocityColormapChange: (colormapId: string) => void;
+  onMapBaseStyleChange: (baseStyle: MapBaseStyle) => void;
+  onMapDarkenChange: (darkenPercent: number) => void;
+  onMapDesaturateChange: (desaturatePercent: number) => void;
 }
 
 export class SidebarView {
@@ -88,12 +99,20 @@ export class SidebarView {
     colormapId: DEFAULT_COLORMAP_ID
   };
   private lastVelocityMaxDisplayValue = 0;
+  private lastMapViewSettings: MapViewSettings = {
+    baseStyle: "osm-standard",
+    darkenPercent: 0,
+    desaturatePercent: 0
+  };
 
   constructor(root: HTMLElement, callbacks: SidebarCallbacks) {
     this.root = root;
     this.callbacks = callbacks;
     const colormapOptions = COLORMAPS.map(
       (colormap) => `<option value="${colormap.id}">${this.escapeHtml(colormap.name)}</option>`
+    ).join("");
+    const mapStyleOptions = MAP_STYLE_OPTIONS.map(
+      (option) => `<option value="${option.id}">${this.escapeHtml(option.label)}</option>`
     ).join("");
 
     this.root.innerHTML = `
@@ -158,6 +177,35 @@ export class SidebarView {
           <p class="edit-hint">
             Hold Shift to add to selection in edit modes.<br/>Hold Space to drag the map while editing.
           </p>
+        </div>
+      </section>
+
+      <section class="panel-section panel-map sidebar-section" data-section-id="map">
+        <div class="panel-section-header">
+          <h2>Map</h2>
+          ${this.buildSectionControls("map")}
+        </div>
+        <div class="panel-section-content">
+          <label class="map-field">
+            <span>Style</span>
+            <select data-action="map-style">
+              ${mapStyleOptions}
+            </select>
+          </label>
+          <label class="map-field">
+            <span>Darken</span>
+            <div class="map-filter-row">
+              <input data-action="map-darken" type="range" min="0" max="100" step="1" value="0" />
+              <span class="map-filter-value" id="map-darken-value">0%</span>
+            </div>
+          </label>
+          <label class="map-field">
+            <span>Desaturate</span>
+            <div class="map-filter-row">
+              <input data-action="map-desaturate" type="range" min="0" max="100" step="1" value="0" />
+              <span class="map-filter-value" id="map-desaturate-value">0%</span>
+            </div>
+          </label>
         </div>
       </section>
 
@@ -254,16 +302,19 @@ export class SidebarView {
     summary: ImportSummary | undefined,
     editMode: EditInteractionMode,
     velocitySettings: VelocityViewSettings,
-    velocityMaxDisplayValue: number
+    velocityMaxDisplayValue: number,
+    mapViewSettings: MapViewSettings
   ): void {
     this.lastState = state;
     this.lastSummary = summary;
     this.lastEditMode = editMode;
     this.lastVelocitySettings = velocitySettings;
     this.lastVelocityMaxDisplayValue = velocityMaxDisplayValue;
+    this.lastMapViewSettings = mapViewSettings;
 
     this.pruneCollapsedTrackIds(state);
     this.syncEditModeControls(editMode);
+    this.syncMapControls(mapViewSettings);
     this.syncVelocityControls(velocitySettings, velocityMaxDisplayValue);
     this.applySectionLayout();
 
@@ -441,6 +492,11 @@ export class SidebarView {
       if (target instanceof HTMLSelectElement) {
         if (action === "velocity-colormap") {
           this.callbacks.onVelocityColormapChange(target.value);
+        } else if (action === "map-style") {
+          const style = target.value;
+          if (MAP_STYLE_OPTIONS.some((option) => option.id === style)) {
+            this.callbacks.onMapBaseStyleChange(style as MapBaseStyle);
+          }
         }
 
         return;
@@ -465,6 +521,21 @@ export class SidebarView {
           this.callbacks.onVelocityFixedMaxChange(nextMax);
         }
         return;
+      }
+
+      if (action === "map-darken") {
+        const nextValue = Number.parseFloat(target.value);
+        if (Number.isFinite(nextValue)) {
+          this.callbacks.onMapDarkenChange(nextValue);
+        }
+        return;
+      }
+
+      if (action === "map-desaturate") {
+        const nextValue = Number.parseFloat(target.value);
+        if (Number.isFinite(nextValue)) {
+          this.callbacks.onMapDesaturateChange(nextValue);
+        }
       }
     });
 
@@ -608,16 +679,31 @@ export class SidebarView {
       }
 
       const action = target.dataset.action;
-      if (action !== "velocity-max" && action !== "velocity-max-slider") {
+      if (
+        action !== "velocity-max" &&
+        action !== "velocity-max-slider" &&
+        action !== "map-darken" &&
+        action !== "map-desaturate"
+      ) {
         return;
       }
 
-      const nextMax = Number.parseFloat(target.value);
-      if (!Number.isFinite(nextMax)) {
+      const nextValue = Number.parseFloat(target.value);
+      if (!Number.isFinite(nextValue)) {
         return;
       }
 
-      this.callbacks.onVelocityFixedMaxChange(nextMax);
+      if (action === "map-darken") {
+        this.callbacks.onMapDarkenChange(nextValue);
+        return;
+      }
+
+      if (action === "map-desaturate") {
+        this.callbacks.onMapDesaturateChange(nextValue);
+        return;
+      }
+
+      this.callbacks.onVelocityFixedMaxChange(nextValue);
     });
   }
 
@@ -647,7 +733,8 @@ export class SidebarView {
       this.lastSummary,
       this.lastEditMode,
       this.lastVelocitySettings,
-      this.lastVelocityMaxDisplayValue
+      this.lastVelocityMaxDisplayValue,
+      this.lastMapViewSettings
     );
   }
 
@@ -866,6 +953,41 @@ export class SidebarView {
       input.checked = isActive;
       input.closest(".edit-mode-card")?.classList.toggle("is-active", isActive);
     });
+  }
+
+  private syncMapControls(mapViewSettings: MapViewSettings): void {
+    const styleSelect = this.root.querySelector<HTMLSelectElement>('select[data-action="map-style"]');
+    if (styleSelect) {
+      const hasSelectedStyle = MAP_STYLE_OPTIONS.some((option) => option.id === mapViewSettings.baseStyle);
+      styleSelect.value = hasSelectedStyle ? mapViewSettings.baseStyle : MAP_STYLE_OPTIONS[0]?.id ?? "osm-standard";
+    }
+
+    const darken = Number.isFinite(mapViewSettings.darkenPercent)
+      ? Math.max(0, Math.min(100, Math.round(mapViewSettings.darkenPercent)))
+      : 0;
+    const desaturate = Number.isFinite(mapViewSettings.desaturatePercent)
+      ? Math.max(0, Math.min(100, Math.round(mapViewSettings.desaturatePercent)))
+      : 0;
+
+    const darkenInput = this.root.querySelector<HTMLInputElement>('input[data-action="map-darken"]');
+    if (darkenInput) {
+      darkenInput.value = String(darken);
+    }
+
+    const desaturateInput = this.root.querySelector<HTMLInputElement>('input[data-action="map-desaturate"]');
+    if (desaturateInput) {
+      desaturateInput.value = String(desaturate);
+    }
+
+    const darkenValue = this.root.querySelector<HTMLElement>("#map-darken-value");
+    if (darkenValue) {
+      darkenValue.textContent = `${darken}%`;
+    }
+
+    const desaturateValue = this.root.querySelector<HTMLElement>("#map-desaturate-value");
+    if (desaturateValue) {
+      desaturateValue.textContent = `${desaturate}%`;
+    }
   }
 
   private syncVelocityControls(

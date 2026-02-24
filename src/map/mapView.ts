@@ -9,6 +9,8 @@ import {
 } from "./velocity";
 import type {
   EditInteractionMode,
+  MapBaseStyle,
+  MapViewSettings,
   PointCoordinateUpdate,
   SegmentColorMetric,
   Track,
@@ -103,6 +105,56 @@ const MIN_LEGEND_WIDTH_PX = 248;
 const MIN_LEGEND_HEIGHT_HISTOGRAM_PX = 238;
 const HISTOGRAM_MIN_HEIGHT_REM = 3.35;
 const HISTOGRAM_LOG_X_STRETCH = 45;
+const DEFAULT_MAP_VIEW_SETTINGS: MapViewSettings = {
+  baseStyle: "osm-standard",
+  darkenPercent: 0,
+  desaturatePercent: 0
+};
+
+interface BasemapStyleDefinition {
+  urlTemplate: string;
+  attribution: string;
+  maxZoom: number;
+  subdomains?: string;
+}
+
+const BASEMAP_STYLES: Record<MapBaseStyle, BasemapStyleDefinition> = {
+  "osm-standard": {
+    urlTemplate: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+    subdomains: "abc"
+  },
+  "carto-light": {
+    urlTemplate: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 20,
+    subdomains: "abcd"
+  },
+  "carto-dark": {
+    urlTemplate: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 20,
+    subdomains: "abcd"
+  },
+  "carto-voyager": {
+    urlTemplate: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+    attribution:
+      '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 20,
+    subdomains: "abcd"
+  }
+};
+
+function clampPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(100, value));
+}
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) {
@@ -120,6 +172,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 
 export class MapView {
   private map: L.Map;
+  private baseTileLayer?: L.TileLayer;
   private layerGroup: L.LayerGroup;
   private velocityLegendElement?: HTMLDivElement;
   private spaceCursorElement: HTMLDivElement;
@@ -153,6 +206,7 @@ export class MapView {
   private legendVisibleModeWidthPx = DEFAULT_LEGEND_WIDTH_PX;
   private legendVisibleModeHeightPx = DEFAULT_LEGEND_HEIGHT_PX;
   private legendVisibleModeWasCustom = false;
+  private mapViewSettings: MapViewSettings = { ...DEFAULT_MAP_VIEW_SETTINGS };
 
   constructor(container: HTMLElement, callbacks: MapViewCallbacks) {
     this.callbacks = callbacks;
@@ -162,10 +216,8 @@ export class MapView {
       boxZoom: false
     }).setView([39.8283, -98.5795], 4);
 
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(this.map);
+    this.setBaseMapStyle(this.mapViewSettings.baseStyle);
+    this.applyBaseMapFilter(this.mapViewSettings);
 
     this.layerGroup = L.layerGroup().addTo(this.map);
     this.spaceCursorElement = L.DomUtil.create(
@@ -213,6 +265,23 @@ export class MapView {
     window.setTimeout(() => {
       this.map.invalidateSize();
     }, 0);
+  }
+
+  setMapViewSettings(settings: MapViewSettings): void {
+    const normalized: MapViewSettings = {
+      baseStyle: settings.baseStyle in BASEMAP_STYLES ? settings.baseStyle : DEFAULT_MAP_VIEW_SETTINGS.baseStyle,
+      darkenPercent: clampPercent(settings.darkenPercent),
+      desaturatePercent: clampPercent(settings.desaturatePercent)
+    };
+
+    const baseStyleChanged = normalized.baseStyle !== this.mapViewSettings.baseStyle;
+    this.mapViewSettings = normalized;
+
+    if (baseStyleChanged) {
+      this.setBaseMapStyle(normalized.baseStyle);
+    }
+
+    this.applyBaseMapFilter(normalized);
   }
 
   renderTracks(tracks: Track[], options: RenderOptions = {}): void {
@@ -488,6 +557,40 @@ export class MapView {
       this.map.once("moveend", onMoveEnd);
       this.map.fitBounds(bounds, options);
     });
+  }
+
+  private setBaseMapStyle(style: MapBaseStyle): void {
+    if (this.baseTileLayer) {
+      this.baseTileLayer.remove();
+      this.baseTileLayer = undefined;
+    }
+
+    const definition = BASEMAP_STYLES[style] ?? BASEMAP_STYLES[DEFAULT_MAP_VIEW_SETTINGS.baseStyle];
+    const options: L.TileLayerOptions = {
+      maxZoom: definition.maxZoom,
+      attribution: definition.attribution
+    };
+    if (definition.subdomains) {
+      options.subdomains = definition.subdomains;
+    }
+
+    this.baseTileLayer = L.tileLayer(definition.urlTemplate, options);
+    this.baseTileLayer.addTo(this.map);
+  }
+
+  private applyBaseMapFilter(settings: MapViewSettings): void {
+    const tilePane = this.map.getPane("tilePane");
+    if (!tilePane) {
+      return;
+    }
+
+    const brightness = Math.max(0, (100 - settings.darkenPercent) / 100);
+    const saturation = Math.max(0, (100 - settings.desaturatePercent) / 100);
+    const isDefault = settings.darkenPercent === 0 && settings.desaturatePercent === 0;
+
+    tilePane.style.filter = isDefault
+      ? ""
+      : `saturate(${saturation.toFixed(3)}) brightness(${brightness.toFixed(3)})`;
   }
 
   private renderVelocityTrackPolyline(
