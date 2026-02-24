@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Improve track-card state readability in sidebar.
+Refine header micro-control alignment.
 
 ## CURRENT_SUBTASK
-Completed: added explicit visual states for each track card (`Hidden`, `Visible`, `Editing`) with state badges and updated pill styling; hiding an actively edited track now exits edit mode first.
+Completed: replaced mini state pills with typographic circled glyphs (`Ⓗ/Ⓥ/Ⓔ`) to align cleanly with chevrons while preserving click-to-toggle visibility on collapsed tracks.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -122,6 +122,9 @@ Completed: added explicit visual states for each track card (`Hidden`, `Visible`
     - `Hidden`: dashed card border + muted controls + `Hidden` state badge
     - `Visible`: subtle accented card styling + `Visible` state badge
     - `Editing`: emphasized accent border/shadow + `Editing` state badge
+    - Header badge is now compact (`H/V/E`) and right-aligned directly before the move/collapse controls.
+    - `H/V/E` badge is now an actual mini-button for show/hide toggling, so visibility can be changed without expanding the track card.
+    - Visual badge now uses circled typography (`Ⓗ/Ⓥ/Ⓔ`) with same control metrics as chevrons to avoid baseline/vertical misalignment.
   - Visibility pill text now reflects current state (`Visible`/`Hidden`), and hiding the currently edited track exits edit mode to keep the state model coherent.
   - Track visualization rules enforce at least one of `Points` or `Segments` active.
 - Track ordering:

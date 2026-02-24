@@ -257,6 +257,7 @@ export class SidebarView {
             ? "visible"
             : "hidden";
         const stateLabel = visualState === "editing" ? "Editing" : visualState === "visible" ? "Visible" : "Hidden";
+        const stateGlyph = visualState === "editing" ? "🅔" : visualState === "visible" ? "Ⓥ" : "Ⓗ";
         const isCollapsed = this.collapsedTrackIds.has(track.id);
         const safeTrackName = this.escapeHtml(track.name);
         const canMoveUp = index > 0;
@@ -276,12 +277,21 @@ export class SidebarView {
                 <span class="track-item-header-main">
                   <span class="track-color" style="background:${track.color}"></span>
                   <span class="track-title" title="${safeTrackName}">${safeTrackName}</span>
-                  <span class="track-state-badge track-state-${visualState}" aria-label="Track state: ${stateLabel}">
-                    ${stateLabel}
-                  </span>
                 </span>
               </button>
               <div class="track-item-header-controls">
+                <button
+                  class="track-state-btn track-state-${visualState}"
+                  data-action="toggle-visible-mini"
+                  data-track-id="${track.id}"
+                  data-next-visible="${track.visible ? "false" : "true"}"
+                  type="button"
+                  title="${track.visible ? "Hide track" : "Show track"}"
+                  aria-label="Track state: ${stateLabel}. Click to ${track.visible ? "hide" : "show"} track."
+                  aria-pressed="${track.visible ? "true" : "false"}"
+                >
+                  ${stateGlyph}
+                </button>
                 <button
                   class="track-header-icon-btn"
                   data-action="move-up"
@@ -323,7 +333,7 @@ export class SidebarView {
               <div class="track-toggle-row">
                 <button
                   class="track-toggle-btn track-visibility-toggle ${track.visible ? "is-on" : "is-off"}${isEditing ? " is-editing-track" : ""
-                  }"
+            }"
                   data-action="toggle-visible"
                   data-track-id="${track.id}"
                   data-next-visible="${track.visible ? "false" : "true"}"
@@ -493,6 +503,11 @@ export class SidebarView {
       }
 
       if (action === "toggle-visible") {
+        this.callbacks.onToggleVisibility(trackId, button.dataset.nextVisible === "true");
+        return;
+      }
+
+      if (action === "toggle-visible-mini") {
         this.callbacks.onToggleVisibility(trackId, button.dataset.nextVisible === "true");
         return;
       }
@@ -876,7 +891,7 @@ export class SidebarView {
     velocityMeta.textContent =
       velocitySettings.scaleMode === "fixed"
         ? `Fixed ${metricLabel} max: ${roundedMax} ${unitLabel}.`
-        : `Auto ${metricLabel} max: ${roundedAutoMax} ${unitLabel} across visible tracks.`;
+        : `Max ${metricLabel}: ${roundedAutoMax} ${unitLabel} across visible tracks.`;
   }
 
   private buildSummaryMessage(summary: ImportSummary): string {
