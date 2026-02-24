@@ -36,6 +36,8 @@ interface DraggingPointContext {
   polyline: L.Polyline;
   markerByPointId: Map<string, L.CircleMarker>;
   indexByPointId: Map<string, number>;
+  pointIdByIndex: string[];
+  segmentByStartIndex?: Map<number, L.Polyline>;
   movePointIds: string[];
   startPositionsByPointId: Map<string, L.LatLng>;
 }
@@ -74,6 +76,11 @@ interface RankedMetricSegment {
   distanceMeters?: number;
   durationSeconds?: number;
   latLngs: [L.LatLngTuple, L.LatLngTuple];
+}
+
+interface VelocityPolylineRenderResult {
+  hiddenPolyline: L.Polyline;
+  segmentByStartIndex: Map<number, L.Polyline>;
 }
 
 type LegendHistogramMode = "standard" | "precision" | "hidden";
@@ -236,16 +243,21 @@ export class MapView {
 
       const lineCoords: L.LatLngExpression[] = track.points.map((point) => [point.lat, point.lng]);
       const showSegments = track.showSegments ?? true;
+      let segmentByStartIndex: Map<number, L.Polyline> | undefined;
       const polyline = showSegments
         ? renderVelocity
-          ? this.renderVelocityTrackPolyline(
-              track,
-              lineCoords,
-              velocitySettings?.metric ?? "velocity",
-              colormap?.colors ?? [],
-              velocityScaleInfo,
-              rankedSegments
-            )
+          ? (() => {
+              const velocityRender = this.renderVelocityTrackPolyline(
+                track,
+                lineCoords,
+                velocitySettings?.metric ?? "velocity",
+                colormap?.colors ?? [],
+                velocityScaleInfo,
+                rankedSegments
+              );
+              segmentByStartIndex = velocityRender.segmentByStartIndex;
+              return velocityRender.hiddenPolyline;
+            })()
           : L.polyline(lineCoords, {
               color: track.color,
               weight: 4,
@@ -333,6 +345,8 @@ export class MapView {
               polyline,
               markerByPointId,
               indexByPointId,
+              pointIdByIndex: track.points.map((trackPoint) => trackPoint.id),
+              segmentByStartIndex,
               movePointIds: selectedInTrack.includes(point.id) ? selectedInTrack : [point.id],
               startPositionsByPointId: new Map()
             });
@@ -391,13 +405,14 @@ export class MapView {
     colormapColors: { r: number; g: number; b: number }[],
     velocityScaleInfo: SegmentColorScaleInfo | undefined,
     rankedSegments: RankedMetricSegment[]
-  ): L.Polyline {
+  ): VelocityPolylineRenderResult {
     const hiddenPolyline = L.polyline(lineCoords, {
       color: "#000000",
       weight: 0,
       opacity: 0,
       interactive: false
     });
+    const segmentByStartIndex = new Map<number, L.Polyline>();
 
     const velocitySegments = computeTrackSegmentVelocities(track);
     const velocitySegmentsByStart = new Map(
@@ -453,6 +468,7 @@ export class MapView {
           lineJoin: "round"
         }
       );
+      segmentByStartIndex.set(idx, segment);
 
       if (metricValue !== undefined) {
         const displayValue =
@@ -491,7 +507,10 @@ export class MapView {
       this.layerGroup.addLayer(segment);
     }
 
-    return hiddenPolyline;
+    return {
+      hiddenPolyline,
+      segmentByStartIndex
+    };
   }
 
   private updateVelocityLegend(
@@ -1157,6 +1176,7 @@ export class MapView {
     const existing = this.draggingPoint.polyline.getLatLngs();
     const isFlat = Array.isArray(existing) && existing.length > 0 && !Array.isArray(existing[0]);
     const flat = isFlat ? [...(existing as L.LatLng[])] : null;
+    const movedPointIndexes = new Set<number>();
 
     for (const pointId of this.draggingPoint.movePointIds) {
       const startPos = this.draggingPoint.startPositionsByPointId.get(pointId);
@@ -1169,6 +1189,7 @@ export class MapView {
 
       const nextLatLng = L.latLng(startPos.lat + deltaLat, startPos.lng + deltaLng);
       marker.setLatLng(nextLatLng);
+      movedPointIndexes.add(pointIndex);
 
       if (flat) {
         flat[pointIndex] = nextLatLng;
@@ -1178,7 +1199,50 @@ export class MapView {
     if (flat) {
       this.draggingPoint.polyline.setLatLngs(flat);
     }
+
+    this.updateDraggedSegmentPolylines(movedPointIndexes);
   };
+
+  private updateDraggedSegmentPolylines(movedPointIndexes: Set<number>): void {
+    if (!this.draggingPoint?.segmentByStartIndex || movedPointIndexes.size === 0) {
+      return;
+    }
+
+    const affectedSegmentIndexes = new Set<number>();
+    const segmentByStartIndex = this.draggingPoint.segmentByStartIndex;
+    const maxSegmentIndex = this.draggingPoint.pointIdByIndex.length - 2;
+
+    for (const movedPointIndex of movedPointIndexes) {
+      if (movedPointIndex > 0) {
+        affectedSegmentIndexes.add(movedPointIndex - 1);
+      }
+      if (movedPointIndex < maxSegmentIndex + 1) {
+        affectedSegmentIndexes.add(movedPointIndex);
+      }
+    }
+
+    for (const segmentStartIndex of affectedSegmentIndexes) {
+      if (segmentStartIndex < 0 || segmentStartIndex > maxSegmentIndex) {
+        continue;
+      }
+
+      const segment = segmentByStartIndex.get(segmentStartIndex);
+      if (!segment) {
+        continue;
+      }
+
+      const startPointId = this.draggingPoint.pointIdByIndex[segmentStartIndex];
+      const endPointId = this.draggingPoint.pointIdByIndex[segmentStartIndex + 1];
+      const startMarker = this.draggingPoint.markerByPointId.get(startPointId);
+      const endMarker = this.draggingPoint.markerByPointId.get(endPointId);
+
+      if (!startMarker || !endMarker) {
+        continue;
+      }
+
+      segment.setLatLngs([startMarker.getLatLng(), endMarker.getLatLng()]);
+    }
+  }
 
   private onDragEnd = (): void => {
     if (!this.draggingPoint) {

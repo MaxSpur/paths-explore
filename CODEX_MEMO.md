@@ -4,7 +4,7 @@
 Improve velocity legend usability with resize support and persistent view settings.
 
 ## CURRENT_SUBTASK
-Completed: make legend height resizing drive histogram height (not whitespace below actions), while keeping width-adaptive bins and persistent velocity settings.
+Completed: point dragging now updates attached segment geometry live (including velocity-segment layers), not only on mouse-up.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -38,6 +38,7 @@ Completed: make legend height resizing drive histogram height (not whitespace be
   - `AppState` now tracks `selectedPointIds` for multi-selection.
   - Shift-click toggles points into/out of the active selection (within the same track context).
   - Dragging one selected point in edit mode moves all selected points together.
+  - During drag, connected segments now update live for moved points (including velocity-colored per-segment polylines), so geometry follows the cursor before mouse release.
   - Delete/Backspace removes all selected points in one operation.
   - Point delete no longer triggers map auto-fit.
   - Leaflet default Shift box-zoom is disabled; custom Shift-drag marquee now selects points in the active editing track.

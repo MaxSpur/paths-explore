@@ -70,7 +70,7 @@ export class SidebarView {
     this.root.innerHTML = `
       <header class="panel-header">
         <h1>Path Segments</h1>
-        <p>Load GPX, KML, and GeoJSON path files.</p>
+        <p>Load GPX, KML, and GeoJSON path files.<br/>Drag here to import.</p>
       </header>
 
       <section class="panel-section sidebar-section" data-section-id="import">
@@ -127,7 +127,7 @@ export class SidebarView {
             </label>
           </div>
           <p class="edit-hint">
-            Hold Shift to add to selection in Move/Marquee/Lasso. Use Info mode to inspect segments.
+            Hold Shift to add to selection in edit modes.<br/>Hold Space to drag the map while editing.
           </p>
         </div>
       </section>
@@ -239,9 +239,8 @@ export class SidebarView {
     this.applySectionLayout();
 
     const importMessage = summary ? this.buildSummaryMessage(summary) : "No imports yet.";
-    this.summaryStatus.textContent = `Loaded ${state.tracks.length} track${
-      state.tracks.length === 1 ? "" : "s"
-    }. ${importMessage}`;
+    this.summaryStatus.textContent = `Loaded ${state.tracks.length} track${state.tracks.length === 1 ? "" : "s"
+      }. ${importMessage}`;
     this.summaryStatus.classList.toggle("has-error", summary ? summary.issues.length > 0 : false);
 
     if (state.tracks.length === 0) {
@@ -258,8 +257,7 @@ export class SidebarView {
         const canMoveDown = index < state.tracks.length - 1;
 
         return `
-          <article class="track-item${isEditing ? " is-editing" : ""}${
-            isCollapsed ? " is-collapsed" : ""
+          <article class="track-item${isEditing ? " is-editing" : ""}${isCollapsed ? " is-collapsed" : ""
           }" data-track-id="${track.id}">
             <div class="track-item-header">
               <button
@@ -310,10 +308,9 @@ export class SidebarView {
                 </button>
               </div>
             </div>
-            ${
-              isCollapsed
-                ? ""
-                : `
+            ${isCollapsed
+            ? ""
+            : `
               <div class="track-toggle-row">
                 <button
                   class="track-toggle-btn ${track.visible ? "is-active" : "is-inactive"}"
@@ -362,7 +359,7 @@ export class SidebarView {
                 <button data-action="delete" data-track-id="${track.id}" type="button">Delete</button>
               </div>
             `
-            }
+          }
           </article>
         `;
       })
@@ -818,14 +815,14 @@ export class SidebarView {
     const maxSlider = this.root.querySelector<HTMLInputElement>('input[data-action="velocity-max-slider"]');
     const roundedMax = Number.isFinite(velocitySettings.fixedMax)
       ? Math.max(
-          0,
-          Math.min(
-            350,
-            velocitySettings.metric === "acceleration"
-              ? Math.round(velocitySettings.fixedMax * 10) / 10
-              : Math.round(velocitySettings.fixedMax)
-          )
+        0,
+        Math.min(
+          350,
+          velocitySettings.metric === "acceleration"
+            ? Math.round(velocitySettings.fixedMax * 10) / 10
+            : Math.round(velocitySettings.fixedMax)
         )
+      )
       : 0;
 
     if (maxInput) {
@@ -871,9 +868,8 @@ export class SidebarView {
   }
 
   private buildSummaryMessage(summary: ImportSummary): string {
-    const importCountLabel = `${summary.importedTrackCount} track${
-      summary.importedTrackCount === 1 ? "" : "s"
-    }`;
+    const importCountLabel = `${summary.importedTrackCount} track${summary.importedTrackCount === 1 ? "" : "s"
+      }`;
     const successMessage =
       summary.importedTrackCount > 0
         ? `Last import added ${importCountLabel}.`
