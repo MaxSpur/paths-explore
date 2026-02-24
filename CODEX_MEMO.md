@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Expand available basemap presets.
+Persist per-track collapse state across reloads.
 
 ## CURRENT_SUBTASK
-Completed: added `CARTO Positron` and `CARTO Positron (No Labels)` to map style options (with persistent selection).
+Completed: fixed startup pruning bug so collapsed-track state survives the initial empty render before IndexedDB track hydration.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -140,6 +140,8 @@ Completed: added `CARTO Positron` and `CARTO Positron (No Labels)` to map style 
 - Sidebar layout:
   - Main sections (`Import`, `Edit`, `Map`, `Velocity`, `Tracks`) support collapse and up/down reorder controls.
   - Section ordering and collapsed state are stored in `localStorage` (`path-segments-sidebar-layout-v1`) and restored on reload.
+  - Per-track collapsed card state is stored separately in `localStorage` (`path-segments-collapsed-tracks-v1`) and pruned to valid loaded track IDs on render.
+  - Pruning now skips when `state.tracks` is empty to avoid wiping collapsed-track state during pre-hydration startup render.
 - Basemap styling:
   - `Map` sidebar section now controls basemap style (`OSM Standard`, `CARTO Light`, `CARTO Positron`, `CARTO Positron (No Labels)`, `CARTO Dark`, `CARTO Voyager`).
   - Additional per-session visualization filters: `darken` and `desaturate` sliders (0..100) applied via CSS filter on Leaflet `tilePane`.

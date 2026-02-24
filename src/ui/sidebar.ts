@@ -13,6 +13,7 @@ import { COLORMAPS, DEFAULT_COLORMAP_ID } from "../colormaps";
 const SIDEBAR_SECTION_IDS = ["import", "edit", "map", "velocity", "tracks"] as const;
 type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 const SIDEBAR_LAYOUT_STORAGE_KEY = "path-segments-sidebar-layout-v1";
+const TRACK_COLLAPSE_STORAGE_KEY = "path-segments-collapsed-tracks-v1";
 type VelocityHeaderMode = "off" | SegmentColorMetric;
 const MAP_STYLE_OPTIONS: Array<{ id: MapBaseStyle; label: string }> = [
   { id: "osm-standard", label: "OSM Standard" },
@@ -290,6 +291,7 @@ export class SidebarView {
     this.summaryStatus = this.root.querySelector("#summary-status") as HTMLElement;
 
     this.loadSectionLayout();
+    this.loadCollapsedTracks();
     this.applySectionLayout();
     this.bindImportControls();
     this.bindPanelActions();
@@ -711,11 +713,13 @@ export class SidebarView {
 
   private collapseAll(): void {
     this.collapsedTrackIds = new Set(this.lastState.tracks.map((track) => track.id));
+    this.saveCollapsedTracks();
     this.rerenderFromCache();
   }
 
   private expandAll(): void {
     this.collapsedTrackIds.clear();
+    this.saveCollapsedTracks();
     this.rerenderFromCache();
   }
 
@@ -726,6 +730,7 @@ export class SidebarView {
       this.collapsedTrackIds.add(trackId);
     }
 
+    this.saveCollapsedTracks();
     this.rerenderFromCache();
   }
 
@@ -940,11 +945,61 @@ export class SidebarView {
     }
   }
 
+  private loadCollapsedTracks(): void {
+    if (typeof localStorage === "undefined") {
+      return;
+    }
+
+    try {
+      const raw = localStorage.getItem(TRACK_COLLAPSE_STORAGE_KEY);
+      if (!raw) {
+        this.collapsedTrackIds.clear();
+        return;
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        this.collapsedTrackIds.clear();
+        return;
+      }
+
+      this.collapsedTrackIds = new Set(
+        parsed.filter((value): value is string => typeof value === "string" && value.length > 0)
+      );
+    } catch {
+      this.collapsedTrackIds.clear();
+    }
+  }
+
+  private saveCollapsedTracks(): void {
+    if (typeof localStorage === "undefined") {
+      return;
+    }
+
+    try {
+      localStorage.setItem(
+        TRACK_COLLAPSE_STORAGE_KEY,
+        JSON.stringify([...this.collapsedTrackIds])
+      );
+    } catch {
+      // Ignore persistence failures (quota/private mode).
+    }
+  }
+
   private pruneCollapsedTrackIds(state: AppState): void {
+    if (state.tracks.length === 0) {
+      return;
+    }
+
     const validIds = new Set(state.tracks.map((track) => track.id));
-    this.collapsedTrackIds = new Set(
+    const nextCollapsed = new Set(
       Array.from(this.collapsedTrackIds).filter((trackId) => validIds.has(trackId))
     );
+    const changed = nextCollapsed.size !== this.collapsedTrackIds.size;
+    this.collapsedTrackIds = nextCollapsed;
+    if (changed) {
+      this.saveCollapsedTracks();
+    }
   }
 
   private syncEditModeControls(editMode: EditInteractionMode): void {
