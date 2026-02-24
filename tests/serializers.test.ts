@@ -43,4 +43,13 @@ describe("track serializers", () => {
     expect(output.content).toContain('"FeatureCollection"');
     expect(output.content).toContain('"LineString"');
   });
+
+  it("serializes csv with csv extension", () => {
+    const output = serializeTrack(buildTrack("csv"));
+
+    expect(output.fileName.endsWith(".csv")).toBe(true);
+    expect(output.content).toContain("INDEX,TRACK ID,VALID,UTC DATE,UTC TIME");
+    expect(output.content).toContain(",N,");
+    expect(output.content).toContain(",W,");
+  });
 });

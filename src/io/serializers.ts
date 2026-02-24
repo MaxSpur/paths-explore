@@ -30,6 +30,10 @@ function extensionForTrack(track: Track): string {
     return "kml";
   }
 
+  if (track.format === "csv") {
+    return "csv";
+  }
+
   if (sourceLower.endsWith(".json")) {
     return "json";
   }
@@ -44,6 +48,10 @@ function mimeTypeForFormat(format: SupportedFormat): string {
 
   if (format === "kml") {
     return "application/vnd.google-earth.kml+xml";
+  }
+
+  if (format === "csv") {
+    return "text/csv";
   }
 
   return "application/geo+json";
@@ -134,6 +142,100 @@ function serializeGeoJson(track: Track): string {
   )}\n`;
 }
 
+function toCsvDateParts(time: string | undefined): {
+  utcDate: string;
+  utcTime: string;
+  localDate: string;
+  localTime: string;
+  ms: string;
+} {
+  if (!time) {
+    return {
+      utcDate: "",
+      utcTime: "",
+      localDate: "",
+      localTime: "",
+      ms: "0"
+    };
+  }
+
+  const date = new Date(time);
+  if (Number.isNaN(date.getTime())) {
+    return {
+      utcDate: "",
+      utcTime: "",
+      localDate: "",
+      localTime: "",
+      ms: "0"
+    };
+  }
+
+  const formatDate = (year: number, month: number, day: number): string => `${year}/${month}/${day}`;
+  const formatTime = (hour: number, minute: number, second: number): string =>
+    `${hour}:${minute}:${second}`;
+
+  return {
+    utcDate: formatDate(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate()),
+    utcTime: formatTime(date.getUTCHours(), date.getUTCMinutes(), date.getUTCSeconds()),
+    localDate: formatDate(date.getFullYear(), date.getMonth() + 1, date.getDate()),
+    localTime: formatTime(date.getHours(), date.getMinutes(), date.getSeconds()),
+    ms: String(date.getUTCMilliseconds())
+  };
+}
+
+function serializeCsv(track: Track): string {
+  const header = [
+    "INDEX",
+    "TRACK ID",
+    "VALID",
+    "UTC DATE",
+    "UTC TIME",
+    "LOCAL DATE",
+    "LOCAL TIME",
+    "MS",
+    "LATITUDE",
+    "N/S",
+    "LONGITUDE",
+    "E/W",
+    "ALTITUDE",
+    "SPEED",
+    "HEADING",
+    "G-X",
+    "G-Y",
+    "G-Z"
+  ];
+
+  const rows = track.points.map((point, index) => {
+    const latHemisphere = point.lat < 0 ? "S" : "N";
+    const lngHemisphere = point.lng < 0 ? "W" : "E";
+    const { utcDate, utcTime, localDate, localTime, ms } = toCsvDateParts(point.time);
+    const altitude = typeof point.ele === "number" ? point.ele.toFixed(6) : "0.000000";
+
+    return [
+      String(index + 1),
+      "1",
+      "FIXED",
+      utcDate,
+      utcTime,
+      localDate,
+      localTime,
+      ms,
+      Math.abs(point.lat).toFixed(6),
+      latHemisphere,
+      Math.abs(point.lng).toFixed(6),
+      lngHemisphere,
+      altitude,
+      "0.000000",
+      "0.000000",
+      "0.000000",
+      "0.000000",
+      "0.000000"
+    ];
+  });
+
+  return [header, ...rows].map((row) => row.join(",")).join("\n") + "\n";
+}
+
 export function serializeTrack(track: Track): SerializedTrack {
   const extension = extensionForTrack(track);
   const fileName = `${safeBaseName(track)}.${extension}`;
@@ -151,6 +253,14 @@ export function serializeTrack(track: Track): SerializedTrack {
       fileName,
       mimeType: mimeTypeForFormat(track.format),
       content: serializeKml(track)
+    };
+  }
+
+  if (track.format === "csv") {
+    return {
+      fileName,
+      mimeType: mimeTypeForFormat(track.format),
+      content: serializeCsv(track)
     };
   }
 

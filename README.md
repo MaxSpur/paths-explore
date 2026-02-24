@@ -1,15 +1,15 @@
 # Path Segments
 
-Map-first GPX/KML/GeoJSON viewer and editor built with Vite + TypeScript + Leaflet.
+Map-first GPX/KML/GeoJSON/CSV viewer and editor built with Vite + TypeScript + Leaflet.
 
 ## Core capabilities
 
 - Render OpenStreetMap tiles with Leaflet.
-- Import multiple files at once: `.gpx`, `.kml`, `.geojson`, `.json`.
+- Import multiple files at once: `.gpx`, `.kml`, `.geojson`, `.json`, `.csv` (including BT-Q1000XT-style CSV).
 - Drag-and-drop import works anywhere on the page.
 - Partial import resilience: one bad file does not block valid files.
 - IndexedDB persistence for loaded/edited tracks across reloads.
-- Export each track in its original format family (GPX/KML/GeoJSON).
+- Export each track in its original format family (GPX/KML/GeoJSON/CSV).
 
 ## Track and sidebar UX
 
@@ -19,6 +19,7 @@ Map-first GPX/KML/GeoJSON viewer and editor built with Vite + TypeScript + Leafl
 - Track card collapse/expand per track + global `Collapse`/`Expand`.
 - Track draw-order controls (up/down), reflected in map overlap order.
 - Sidebar sections are collapsible/reorderable and persisted in localStorage.
+- Map section includes basemap style presets plus darken/desaturate sliders for the base tiles.
 
 ## Editing
 

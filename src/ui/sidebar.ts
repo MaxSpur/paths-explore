@@ -121,7 +121,7 @@ export class SidebarView {
     this.root.innerHTML = `
       <header class="panel-header">
         <h1>Path Segments</h1>
-        <p>Load GPX, KML, and GeoJSON path files.<br/>Drag here to import.</p>
+        <p>Load GPX, KML, GeoJSON, and CSV path files.<br/>Drag here to import.</p>
       </header>
 
       <section class="panel-section sidebar-section" data-section-id="import">
@@ -131,7 +131,7 @@ export class SidebarView {
         </div>
         <div class="panel-section-content">
           <label class="import-label" for="track-file-input">Import files</label>
-          <input id="track-file-input" class="file-input" type="file" multiple accept=".gpx,.kml,.geojson,.json" />
+          <input id="track-file-input" class="file-input" type="file" multiple accept=".gpx,.kml,.geojson,.json,.csv" />
           <p class="import-hint">Tip: drag and drop files anywhere on the page.</p>
           <p id="summary-status" class="status-text">Loaded 0 tracks. No imports yet.</p>
         </div>

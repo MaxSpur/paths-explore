@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Persist per-track collapse state across reloads.
+Add BT-Q1000XT CSV track support.
 
 ## CURRENT_SUBTASK
-Completed: fixed startup pruning bug so collapsed-track state survives the initial empty render before IndexedDB track hydration.
+Completed: parser now supports BT-Q1000XT-style CSV import (including UTC timestamp construction, N/S/E/W hemisphere handling, and per-TRACK-ID splitting), plus CSV export and file-input accept updates.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -31,6 +31,7 @@ Completed: fixed startup pruning bug so collapsed-track state survives the initi
   - `src/model/store.ts` handles visibility, point toggles, edit/selection state, and point move/delete mutations.
   - `src/ui/sidebar.ts` renders import controls + per-track actions.
   - `src/ui/editor.ts` wires Delete/Backspace/Escape keyboard editing controls.
+  - `src/io/parsers.ts` now also accepts `.csv` files in BT-Q1000XT-like schema (`TRACK ID`, `UTC DATE`, `UTC TIME`, `MS`, `LATITUDE`, `N/S`, `LONGITUDE`, `E/W`, etc.) and emits tracks with per-point ISO timestamps.
 - Security/robustness:
   - Sidebar escapes track names before injecting into HTML.
   - Removing a track clears selected point state.
@@ -158,7 +159,7 @@ Completed: fixed startup pruning bug so collapsed-track state survives the initi
 ## KEY_DECISIONS
 - Stack: Vite + Vanilla TypeScript.
 - Map: Leaflet with OSM tile layer.
-- Input formats: GPX, KML, GeoJSON.
+- Input formats: GPX, KML, GeoJSON, CSV (BT-Q1000XT-like).
 - Default rendering: polyline first, per-track points toggle.
 - Editing v1: point move/delete only.
 
