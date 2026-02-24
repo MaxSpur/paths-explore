@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Polish compact header glyph styling/alignment.
+Add legend-scale colormap cycling shortcut.
 
 ## CURRENT_SUBTASK
-Completed: updated velocity mini-cycle glyphs to `Ⓞ/🅥/🅐` and nudged compact circled-letter controls upward for better alignment with chevrons in both section and track headers.
+Completed: clicking the legend color scale now cycles through discovered colormaps; hover tooltip shows current colormap name.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -64,9 +64,11 @@ Completed: updated velocity mini-cycle glyphs to `Ⓞ/🅥/🅐` and nudged comp
   - Collapsed cards show header + color dot only.
   - Track actions include export in original format family (`gpx`, `kml`, `geojson`/`json`).
 - Velocity visualization behavior:
-  - Velocity section header now includes a compact mode-cycle button (`⒪/Ⓥ/Ⓐ`) in section controls.
+  - Velocity section header now includes a compact mode-cycle button (`Ⓞ/🅥/🅐`) in section controls.
   - Clicking the header mini button cycles `off -> velocity -> acceleration -> off`, including when the section content is collapsed.
   - Mini button is synchronized from `syncVelocityControls`, so header state and full mode pills remain consistent.
+  - Legend color scale is now a clickable control (`cycle-legend-colormap`) that rotates through `COLORMAPS` in order.
+  - Legend scale `title`/`aria-label` includes the active colormap name so hover reveals current selection.
   - Sidebar now uses pill controls: `Off` / `Velocity` / `Acceleration` (replacing the old checkbox toggle).
   - Scale mode now uses pill controls: `Auto` / `Fixed` (replacing the old dropdown).
   - Scale modes: `auto` (max from visible loaded tracks) and `fixed` (user-entered max in current metric unit).

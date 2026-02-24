@@ -29,6 +29,7 @@ interface MapViewCallbacks {
   onPointsMoved?: (trackId: string, updates: PointCoordinateUpdate[]) => void;
   onAreaSelected?: (trackId: string, pointIds: string[], additive: boolean) => void;
   onMapBackgroundClick?: () => void;
+  onCycleVelocityColormap?: () => void;
 }
 
 interface DraggingPointContext {
@@ -666,7 +667,14 @@ export class MapView {
         ${axisModeControlMarkup}
       </div>
       ${histogramMarkup}
-      <div class="velocity-legend-bar" style="--legend-gradient: ${gradient};"></div>
+      <button
+        type="button"
+        data-action="cycle-legend-colormap"
+        class="velocity-legend-bar velocity-legend-colormap-btn"
+        style="--legend-gradient: ${gradient};"
+        title="Colormap: ${this.escapeHtml(colormap.name)}. Click to cycle."
+        aria-label="Colormap: ${this.escapeHtml(colormap.name)}. Click to cycle."
+      ></button>
       <div class="velocity-legend-scale"><span>0 ${unitLabel}</span><span>${
         Math.round(maxDisplayValue * 10) / 10
       } ${unitLabel}</span></div>
@@ -1056,6 +1064,15 @@ export class MapView {
   private onLegendClick = (event: MouseEvent): void => {
     const target = event.target;
     if (!(target instanceof HTMLElement)) {
+      return;
+    }
+
+    const colormapCycleButton = target.closest<HTMLButtonElement>(
+      'button[data-action="cycle-legend-colormap"]'
+    );
+    if (colormapCycleButton) {
+      event.preventDefault();
+      this.callbacks.onCycleVelocityColormap?.();
       return;
     }
 

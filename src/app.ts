@@ -3,7 +3,7 @@ import { createTrackPersistence } from "./io/persistence";
 import { serializeTrack } from "./io/serializers";
 import { MapView, type UndoNavigationMode } from "./map/mapView";
 import { computeVelocityScaleInfo } from "./map/velocity";
-import { DEFAULT_COLORMAP_ID, getColormapById } from "./colormaps";
+import { COLORMAPS, DEFAULT_COLORMAP_ID, getColormapById } from "./colormaps";
 import { TrackStore } from "./model/store";
 import type { AppState, EditInteractionMode, ImportSummary, Track, VelocityViewSettings } from "./model/types";
 import { bindKeyboardEditor } from "./ui/editor";
@@ -256,6 +256,24 @@ export function createApp(root: HTMLElement): void {
     return true;
   };
 
+  const cycleVelocityColormap = (): void => {
+    const currentIndex = COLORMAPS.findIndex((colormap) => colormap.id === velocitySettings.colormapId);
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % COLORMAPS.length : 0;
+    const nextColormap = COLORMAPS[nextIndex];
+    if (!nextColormap) {
+      return;
+    }
+
+    if (
+      setVelocitySettings({
+        ...velocitySettings,
+        colormapId: nextColormap.id
+      })
+    ) {
+      render();
+    }
+  };
+
   const render = (options: RenderOptions = {}): void => {
     const state = store.getState();
     const velocityScaleTracks =
@@ -290,6 +308,9 @@ export function createApp(root: HTMLElement): void {
     onMapBackgroundClick: () => {
       store.setSelectedPoints(undefined, []);
       render();
+    },
+    onCycleVelocityColormap: () => {
+      cycleVelocityColormap();
     }
   });
 
