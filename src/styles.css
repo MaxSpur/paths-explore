@@ -118,6 +118,24 @@ input {
   outline-offset: 1px;
 }
 
+.section-velocity-mode-btn {
+  margin-right: 0.04rem;
+  font-size: 0.94rem;
+  transform: translateY(-1px);
+}
+
+.section-velocity-mode-btn.is-off {
+  color: #73847c;
+}
+
+.section-velocity-mode-btn.is-velocity {
+  color: #1b6c5f;
+}
+
+.section-velocity-mode-btn.is-acceleration {
+  color: #0f695d;
+}
+
 .section-collapse-indicator {
   display: inline-grid;
   place-items: center;
@@ -466,6 +484,7 @@ input {
   background: transparent;
   flex: 0 0 auto;
   cursor: pointer;
+  transform: translateY(-1px);
 }
 
 .track-state-btn:hover {

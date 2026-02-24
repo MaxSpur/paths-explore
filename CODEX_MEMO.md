@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Refine header micro-control alignment.
+Polish compact header glyph styling/alignment.
 
 ## CURRENT_SUBTASK
-Completed: replaced mini state pills with typographic circled glyphs (`Ⓗ/Ⓥ/Ⓔ`) to align cleanly with chevrons while preserving click-to-toggle visibility on collapsed tracks.
+Completed: updated velocity mini-cycle glyphs to `Ⓞ/🅥/🅐` and nudged compact circled-letter controls upward for better alignment with chevrons in both section and track headers.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -64,6 +64,9 @@ Completed: replaced mini state pills with typographic circled glyphs (`Ⓗ/Ⓥ/�
   - Collapsed cards show header + color dot only.
   - Track actions include export in original format family (`gpx`, `kml`, `geojson`/`json`).
 - Velocity visualization behavior:
+  - Velocity section header now includes a compact mode-cycle button (`⒪/Ⓥ/Ⓐ`) in section controls.
+  - Clicking the header mini button cycles `off -> velocity -> acceleration -> off`, including when the section content is collapsed.
+  - Mini button is synchronized from `syncVelocityControls`, so header state and full mode pills remain consistent.
   - Sidebar now uses pill controls: `Off` / `Velocity` / `Acceleration` (replacing the old checkbox toggle).
   - Scale mode now uses pill controls: `Auto` / `Fixed` (replacing the old dropdown).
   - Scale modes: `auto` (max from visible loaded tracks) and `fixed` (user-entered max in current metric unit).

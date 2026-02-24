@@ -11,6 +11,7 @@ import { COLORMAPS, DEFAULT_COLORMAP_ID } from "../colormaps";
 const SIDEBAR_SECTION_IDS = ["import", "edit", "velocity", "tracks"] as const;
 type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 const SIDEBAR_LAYOUT_STORAGE_KEY = "path-segments-sidebar-layout-v1";
+type VelocityHeaderMode = "off" | SegmentColorMetric;
 
 interface SidebarLayoutPrefs {
   order: SidebarSectionId[];
@@ -19,6 +20,34 @@ interface SidebarLayoutPrefs {
 
 function isSidebarSectionId(value: string): value is SidebarSectionId {
   return (SIDEBAR_SECTION_IDS as readonly string[]).includes(value);
+}
+
+function getVelocityHeaderMode(settings: VelocityViewSettings): VelocityHeaderMode {
+  return settings.enabled ? settings.metric : "off";
+}
+
+function getVelocityHeaderGlyph(mode: VelocityHeaderMode): string {
+  if (mode === "velocity") {
+    return "🅥";
+  }
+
+  if (mode === "acceleration") {
+    return "🅐";
+  }
+
+  return "Ⓞ";
+}
+
+function getVelocityHeaderLabel(mode: VelocityHeaderMode): string {
+  if (mode === "velocity") {
+    return "Velocity";
+  }
+
+  if (mode === "acceleration") {
+    return "Acceleration";
+  }
+
+  return "Off";
 }
 
 interface SidebarCallbacks {
@@ -490,6 +519,18 @@ export class SidebarView {
         return;
       }
 
+      if (action === "velocity-mode-cycle") {
+        const currentMode = getVelocityHeaderMode(this.lastVelocitySettings);
+        const nextMode: VelocityHeaderMode =
+          currentMode === "off"
+            ? "velocity"
+            : currentMode === "velocity"
+              ? "acceleration"
+              : "off";
+        this.callbacks.onVelocityModeChange(nextMode);
+        return;
+      }
+
       if (action === "velocity-scale") {
         const mode = button.dataset.scale;
         if (mode === "auto" || mode === "fixed") {
@@ -611,8 +652,26 @@ export class SidebarView {
   }
 
   private buildSectionControls(sectionId: SidebarSectionId): string {
+    const velocityModeControl =
+      sectionId === "velocity"
+        ? `
+        <button
+          class="section-header-icon-btn section-velocity-mode-btn"
+          data-action="velocity-mode-cycle"
+          data-mode="off"
+          type="button"
+          title="Toggle segment coloring mode"
+          aria-label="Segment coloring mode: Off. Click to cycle between Off, Velocity, and Acceleration."
+          aria-pressed="false"
+        >
+          ${getVelocityHeaderGlyph("off")}
+        </button>
+      `
+        : "";
+
     return `
       <div class="panel-section-controls">
+        ${velocityModeControl}
         <button
           class="section-header-icon-btn"
           data-action="section-move-up"
@@ -813,7 +872,7 @@ export class SidebarView {
     velocitySettings: VelocityViewSettings,
     velocityMaxDisplayValue: number
   ): void {
-    const mode = velocitySettings.enabled ? velocitySettings.metric : "off";
+    const mode = getVelocityHeaderMode(velocitySettings);
     const modeButtons = this.root.querySelectorAll<HTMLButtonElement>('button[data-action="velocity-mode"]');
     modeButtons.forEach((button) => {
       const isActive = button.dataset.mode === mode;
@@ -821,6 +880,21 @@ export class SidebarView {
       button.classList.toggle("is-inactive", !isActive);
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
+
+    const headerModeButton = this.root.querySelector<HTMLButtonElement>('button[data-action="velocity-mode-cycle"]');
+    if (headerModeButton) {
+      headerModeButton.dataset.mode = mode;
+      headerModeButton.textContent = getVelocityHeaderGlyph(mode);
+      headerModeButton.classList.toggle("is-off", mode === "off");
+      headerModeButton.classList.toggle("is-velocity", mode === "velocity");
+      headerModeButton.classList.toggle("is-acceleration", mode === "acceleration");
+      headerModeButton.setAttribute("aria-pressed", mode === "off" ? "false" : "true");
+      headerModeButton.title = `Segment coloring mode: ${getVelocityHeaderLabel(mode)} (click to cycle)`;
+      headerModeButton.setAttribute(
+        "aria-label",
+        `Segment coloring mode: ${getVelocityHeaderLabel(mode)}. Click to cycle between Off, Velocity, and Acceleration.`
+      );
+    }
 
     const scaleButtons = this.root.querySelectorAll<HTMLButtonElement>('button[data-action="velocity-scale"]');
     scaleButtons.forEach((button) => {
