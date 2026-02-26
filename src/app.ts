@@ -19,6 +19,7 @@ import { SidebarView } from "./ui/sidebar";
 
 interface RenderOptions {
   fitToVisible?: boolean;
+  fitToTrackIds?: string[];
 }
 
 type PointSelectionContext = "none" | "point-click" | "area-select" | "peak-nav";
@@ -364,6 +365,7 @@ export function createApp(root: HTMLElement): void {
   let mapView: MapView;
   let lastPointSelectionSource: PointSelectionContext = "none";
   let pendingPeakDeleteRefocusTimerId: number | undefined;
+  let lastImportedTrackIds: string[] = [];
 
   const cancelPendingPeakDeleteRefocus = (): void => {
     if (pendingPeakDeleteRefocusTimerId === undefined) {
@@ -436,7 +438,8 @@ export function createApp(root: HTMLElement): void {
       selectedPointIds: state.selectedPointIds,
       editMode,
       velocitySettings,
-      fitToVisible: options.fitToVisible
+      fitToVisible: options.fitToVisible,
+      fitToTrackIds: options.fitToTrackIds
     });
   };
 
@@ -470,11 +473,21 @@ export function createApp(root: HTMLElement): void {
 
   const importer = createFileImporter({
     onTracks: (tracks) => {
+      const previousTrackIds = new Set(store.getState().tracks.map((track) => track.id));
       store.addTracks(tracks);
+      lastImportedTrackIds = store
+        .getState()
+        .tracks.filter((track) => !previousTrackIds.has(track.id))
+        .map((track) => track.id);
     },
     onSummary: (summary) => {
       latestSummary = summary;
-      render({ fitToVisible: true });
+      if (summary.importedTrackCount > 0 && lastImportedTrackIds.length > 0) {
+        render({ fitToTrackIds: lastImportedTrackIds });
+      } else {
+        render();
+      }
+      lastImportedTrackIds = [];
     }
   });
 

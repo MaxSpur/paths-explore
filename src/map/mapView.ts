@@ -23,6 +23,7 @@ interface RenderOptions {
   selectedPointIds?: string[];
   editMode?: EditInteractionMode;
   fitToVisible?: boolean;
+  fitToTrackIds?: string[];
   velocitySettings?: VelocityViewSettings;
 }
 
@@ -461,7 +462,9 @@ export class MapView {
       });
     }
 
-    if (options.fitToVisible) {
+    if (options.fitToTrackIds && options.fitToTrackIds.length > 0) {
+      this.fitTracksByIds(tracks, options.fitToTrackIds);
+    } else if (options.fitToVisible) {
       this.fitVisibleTracks(tracks);
     }
 
@@ -477,8 +480,10 @@ export class MapView {
       return;
     }
 
-    const bounds = L.latLngBounds(track.points.map((point) => [point.lat, point.lng] as L.LatLngTuple));
-    this.map.fitBounds(bounds.pad(0.2));
+    this.fitBoundsForPoints(
+      track.points.map((point) => [point.lat, point.lng] as L.LatLngTuple),
+      0.2
+    );
   }
 
   fitVisibleTracks(tracks: Track[]): void {
@@ -488,12 +493,47 @@ export class MapView {
       return;
     }
 
-    const allPoints = visibleTracks.flatMap((track) =>
-      track.points.map((point) => [point.lat, point.lng] as L.LatLngTuple)
+    this.fitBoundsForPoints(
+      visibleTracks.flatMap((track) =>
+        track.points.map((point) => [point.lat, point.lng] as L.LatLngTuple)
+      ),
+      0.15
     );
+  }
 
-    const bounds = L.latLngBounds(allPoints);
-    this.map.fitBounds(bounds.pad(0.15));
+  fitTracksByIds(tracks: Track[], trackIds: string[]): void {
+    const targetIdSet = new Set(trackIds);
+    const matchingVisibleTracks = tracks.filter(
+      (track) => targetIdSet.has(track.id) && track.visible && track.points.length > 0
+    );
+    const matchingTracks =
+      matchingVisibleTracks.length > 0
+        ? matchingVisibleTracks
+        : tracks.filter((track) => targetIdSet.has(track.id) && track.points.length > 0);
+
+    if (matchingTracks.length === 0) {
+      return;
+    }
+
+    this.fitBoundsForPoints(
+      matchingTracks.flatMap((track) =>
+        track.points.map((point) => [point.lat, point.lng] as L.LatLngTuple)
+      ),
+      0.15
+    );
+  }
+
+  private fitBoundsForPoints(points: L.LatLngTuple[], pad: number): void {
+    if (points.length === 0) {
+      return;
+    }
+
+    const bounds = L.latLngBounds(points);
+    if (!bounds.isValid()) {
+      return;
+    }
+
+    this.map.fitBounds(bounds.pad(pad));
   }
 
   async focusPointsIfOutsideView(

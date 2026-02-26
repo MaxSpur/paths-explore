@@ -1,5 +1,5 @@
 import type { ImportIssue, ImportSummary, Track } from "../model/types";
-import { parseFile } from "./parsers";
+import { isZipFileName, parseFile, parseZipFile } from "./parsers";
 
 interface FileImporterOptions {
   onTracks: (tracks: Track[]) => void;
@@ -43,6 +43,13 @@ export function createFileImporter(options: FileImporterOptions): FileImporter {
 
     for (const file of fileArray) {
       try {
+        if (isZipFileName(file.name)) {
+          const zipResult = await parseZipFile(file);
+          importedTracks.push(...zipResult.tracks);
+          issues.push(...zipResult.issues);
+          continue;
+        }
+
         const tracks = await parseFile(file);
         importedTracks.push(...tracks);
       } catch (error) {

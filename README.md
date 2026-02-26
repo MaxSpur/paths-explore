@@ -5,9 +5,10 @@ Map-first GPX/KML/GeoJSON/CSV viewer and editor built with Vite + TypeScript + L
 ## Core capabilities
 
 - Render OpenStreetMap tiles with Leaflet.
-- Import multiple files at once: `.gpx`, `.kml`, `.geojson`, `.json`, `.csv` (including BT-Q1000XT-style CSV).
+- Import multiple files at once: `.gpx`, `.kml`, `.geojson`, `.json`, `.csv` (including BT-Q1000XT-style CSV), and `.zip` archives containing supported path files.
 - Drag-and-drop import works anywhere on the page.
 - Partial import resilience: one bad file does not block valid files.
+- Import camera focus targets only the newly imported track(s), not all previously loaded tracks.
 - IndexedDB persistence for loaded/edited tracks across reloads.
 - Export each track in its original format family (GPX/KML/GeoJSON/CSV).
 
@@ -71,7 +72,33 @@ npm install
 npm run dev
 ```
 
-Default dev server: `http://localhost:5174`.
+Defaults:
+
+- Dev server host: `0.0.0.0` (`--host` no longer required).
+- Preferred dev port: `5174`.
+- If that port is busy, Vite now auto-selects the next free port (set `VITE_STRICT_PORT=true` to force fail-fast behavior).
+
+### Run over HTTPS locally
+
+You can copy `.env.example` to `.env.development.local` and adjust values.
+
+1. Generate a local certificate/key pair (recommended: [mkcert](https://github.com/FiloSottile/mkcert)).
+2. Store files in the repo, for example `certs/localhost.pem` and `certs/localhost-key.pem`.
+3. Add a `.env.development.local` file:
+
+```bash
+VITE_DEV_HTTPS=true
+VITE_DEV_SSL_CERT=certs/localhost.pem
+VITE_DEV_SSL_KEY=certs/localhost-key.pem
+```
+
+4. Start dev server:
+
+```bash
+npm run dev
+```
+
+If `VITE_DEV_HTTPS=true` is set but cert paths are missing/invalid, config falls back to HTTP and logs a warning.
 
 ## Testing and build
 

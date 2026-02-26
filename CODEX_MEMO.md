@@ -1,15 +1,22 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Refresh README to match latest peak/editing behavior.
+Sanitize repo ignores for local HTTPS/env setup.
 
 ## CURRENT_SUBTASK
-Completed: documented `Top Peak`/`Next Peak`, endpoint-anchored translucent popup, and delete follow-up behaviors in `README.md`.
+Completed: `.gitignore` now excludes local `.env.*.local` and `certs/` while keeping `.env.example` trackable.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
 - Git repository was initialized during session.
 - Target runtime is Vite dev server (`npm run dev`) and static GitHub Pages deployment.
+- Dev server robustness:
+  - `server.host=true` for LAN testing by default.
+  - Preferred port comes from `VITE_PORT`/`PORT` (default `5174`); fallback to next free port unless `VITE_STRICT_PORT=true`.
+  - Optional HTTPS is enabled with `VITE_DEV_HTTPS=true` plus `VITE_DEV_SSL_CERT` and `VITE_DEV_SSL_KEY`.
+  - `.env.example` documents supported Vite env knobs.
+  - Repo hygiene: local env overrides (`.env.*.local`) and local TLS certs (`certs/`) are ignored in git.
+  - Codex command runs that use login shells can resolve `/usr/local/bin/node` (`v10.12.0`) before `fnm`, which breaks modern npm/vite (`Cannot find module 'node:path'`); non-login shell resolves `fnm` Node (`v24.x`) and works.
 - Pages deploy is handled by `.github/workflows/deploy.yml` on push to `master` or `main` plus manual dispatch.
 - `dist/` is git-ignored and should not be committed; Actions artifact upload publishes built output.
 - Vite build `base` is now `./` (relative assets) instead of hardcoded `/Path-Segments/`.
@@ -128,6 +135,9 @@ Completed: documented `Top Peak`/`Next Peak`, endpoint-anchored translucent popu
   - Dedicated drop box removed; users can now drag and drop files anywhere on the page.
   - Import section uses a compact hint line instead of a large drop target block.
   - Full-page drag-over overlay now appears while file payload is dragged over the app.
+  - Import camera behavior now fits only newly imported track(s), not all visible loaded tracks.
+  - ZIP import support is built-in (no external library): central directory is parsed client-side; stored (`method 0`) and deflate (`method 8`) entries are supported.
+  - ZIP parsing keeps partial-success behavior: valid entries import while invalid entries are reported as per-entry issues (`zipName › entryPath`).
 - Cursor behavior:
   - Native map cursor is hidden while inside the map; proxy cursor is used for consistency.
   - Pan proxy (circular) in normal mode and editing `move` mode.

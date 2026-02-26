@@ -1,5 +1,93 @@
 import { describe, expect, it } from "vitest";
-import { parseTextContent } from "../src/io/parsers";
+import { parseTextContent, parseZipFile } from "../src/io/parsers";
+
+function writeUInt16LE(target: Uint8Array, offset: number, value: number): void {
+  target[offset] = value & 0xff;
+  target[offset + 1] = (value >>> 8) & 0xff;
+}
+
+function writeUInt32LE(target: Uint8Array, offset: number, value: number): void {
+  target[offset] = value & 0xff;
+  target[offset + 1] = (value >>> 8) & 0xff;
+  target[offset + 2] = (value >>> 16) & 0xff;
+  target[offset + 3] = (value >>> 24) & 0xff;
+}
+
+function concatBytes(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const output = new Uint8Array(total);
+  let cursor = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, cursor);
+    cursor += chunk.length;
+  }
+  return output;
+}
+
+function buildStoredZip(entries: Array<{ name: string; content: string }>): Uint8Array {
+  const encoder = new TextEncoder();
+  const localChunks: Uint8Array[] = [];
+  const centralChunks: Uint8Array[] = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const fileNameBytes = encoder.encode(entry.name);
+    const contentBytes = encoder.encode(entry.content);
+
+    const localHeader = new Uint8Array(30 + fileNameBytes.length);
+    writeUInt32LE(localHeader, 0, 0x04034b50);
+    writeUInt16LE(localHeader, 4, 20);
+    writeUInt16LE(localHeader, 6, 0);
+    writeUInt16LE(localHeader, 8, 0);
+    writeUInt16LE(localHeader, 10, 0);
+    writeUInt16LE(localHeader, 12, 0);
+    writeUInt32LE(localHeader, 14, 0);
+    writeUInt32LE(localHeader, 18, contentBytes.length);
+    writeUInt32LE(localHeader, 22, contentBytes.length);
+    writeUInt16LE(localHeader, 26, fileNameBytes.length);
+    writeUInt16LE(localHeader, 28, 0);
+    localHeader.set(fileNameBytes, 30);
+
+    localChunks.push(localHeader, contentBytes);
+
+    const centralHeader = new Uint8Array(46 + fileNameBytes.length);
+    writeUInt32LE(centralHeader, 0, 0x02014b50);
+    writeUInt16LE(centralHeader, 4, 20);
+    writeUInt16LE(centralHeader, 6, 20);
+    writeUInt16LE(centralHeader, 8, 0);
+    writeUInt16LE(centralHeader, 10, 0);
+    writeUInt16LE(centralHeader, 12, 0);
+    writeUInt16LE(centralHeader, 14, 0);
+    writeUInt32LE(centralHeader, 16, 0);
+    writeUInt32LE(centralHeader, 20, contentBytes.length);
+    writeUInt32LE(centralHeader, 24, contentBytes.length);
+    writeUInt16LE(centralHeader, 28, fileNameBytes.length);
+    writeUInt16LE(centralHeader, 30, 0);
+    writeUInt16LE(centralHeader, 32, 0);
+    writeUInt16LE(centralHeader, 34, 0);
+    writeUInt16LE(centralHeader, 36, 0);
+    writeUInt32LE(centralHeader, 38, 0);
+    writeUInt32LE(centralHeader, 42, offset);
+    centralHeader.set(fileNameBytes, 46);
+    centralChunks.push(centralHeader);
+
+    offset += localHeader.length + contentBytes.length;
+  }
+
+  const centralDirectory = concatBytes(centralChunks);
+  const localData = concatBytes(localChunks);
+  const eocd = new Uint8Array(22);
+  writeUInt32LE(eocd, 0, 0x06054b50);
+  writeUInt16LE(eocd, 4, 0);
+  writeUInt16LE(eocd, 6, 0);
+  writeUInt16LE(eocd, 8, entries.length);
+  writeUInt16LE(eocd, 10, entries.length);
+  writeUInt32LE(eocd, 12, centralDirectory.length);
+  writeUInt32LE(eocd, 16, localData.length);
+  writeUInt16LE(eocd, 20, 0);
+
+  return concatBytes([localData, centralDirectory, eocd]);
+}
 
 describe("parsers", () => {
   it("parses a GPX file into a single track", () => {
@@ -121,5 +209,34 @@ describe("parsers", () => {
     expect(tracks).toHaveLength(2);
     expect(tracks[0].name).toContain("(track 1)");
     expect(tracks[1].name).toContain("(track 2)");
+  });
+
+  it("parses supported files inside ZIP and reports invalid entries", async () => {
+    const gpx = `<?xml version="1.0" encoding="UTF-8"?>
+      <gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1">
+        <trk><trkseg>
+          <trkpt lat="37.0" lon="-122.0"></trkpt>
+          <trkpt lat="37.1" lon="-122.1"></trkpt>
+        </trkseg></trk>
+      </gpx>`;
+    const invalidGeoJson = JSON.stringify({
+      type: "FeatureCollection",
+      features: [{ type: "Feature", geometry: { type: "Point", coordinates: [0, 0] }, properties: {} }]
+    });
+    const zipBytes = buildStoredZip([
+      { name: "folder/route.gpx", content: gpx },
+      { name: "bad.geojson", content: invalidGeoJson },
+      { name: "notes.txt", content: "ignored" }
+    ]);
+    const zipFile = new File([zipBytes], "bundle.zip", { type: "application/zip" });
+
+    const result = await parseZipFile(zipFile);
+
+    expect(result.tracks).toHaveLength(1);
+    expect(result.tracks[0].format).toBe("gpx");
+    expect(result.tracks[0].sourceFile).toBe("folder/route.gpx");
+    expect(result.issues).toHaveLength(1);
+    expect(result.issues[0].fileName).toContain("bundle.zip");
+    expect(result.issues[0].fileName).toContain("bad.geojson");
   });
 });
