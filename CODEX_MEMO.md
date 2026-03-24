@@ -101,7 +101,8 @@ Rich OD metric catalogs are now wired end-to-end: the converter emits numeric/ca
   - After `Next Peak`, focus is moved from legend controls back to map container to avoid keyboard actions being consumed by focused UI buttons.
   - Map legend includes a colorful, colormap-aligned histogram above the scale with click-cycle modes: `standard` (coarser bins), `precision` (many thin bins, no gaps), `hidden`.
   - OD mode reuses the same legend shell for `Top Flow`, `Next Flow`, selected edge details, and `Extract Selected`.
-  - OD mode now separates `Color / Rank by` from `Draw on top by`.
+- OD mode now separates `Color / Rank by` from `Draw on top by`.
+- OD mode now also supports persisted `Link Metrics` and `Link Variant/Value` toggles in the sidebar; enabling metric linking immediately aligns draw order to the current color metric.
   - OD bundles can expose a manifest-level `odMetrics` catalog plus per-edge `metricValues`.
   - OD legend/histogram/ranking follow the selected color metric; draw order is independent and only affects render stacking.
   - Legend histogram includes a compact single-row axis-mode toggle (`L/L`, `L/G`, `G/L`, `G/G`) for linear/log scaling on X and Y independently.

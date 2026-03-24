@@ -52,7 +52,9 @@ const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
   velocityScaleMode: "auto",
   velocityFixedMax: 60,
   odColorMetricKey: "weight",
-  odDrawOrderMetricKey: "weight"
+  odDrawOrderMetricKey: "weight",
+  odLinkMetricSelections: false,
+  odLinkVariantValueSelections: false
 };
 const DEFAULT_MAP_VIEW_SETTINGS: MapViewSettings = {
   baseStyle: "osm-standard",
@@ -78,7 +80,11 @@ function clampMapFilterPercent(value: number): number {
 
 function normalizeAnalysisSettings(
   settings:
-    | (Partial<AnalysisSettings> & { odMetric?: string })
+    | (Partial<AnalysisSettings> & {
+        odMetric?: string;
+        odLinkMetrics?: boolean;
+        odLinkVariantValues?: boolean;
+      })
     | null
     | undefined
 ): AnalysisSettings {
@@ -109,6 +115,18 @@ function normalizeAnalysisSettings(
     typeof settings?.odDrawOrderMetricKey === "string" && settings.odDrawOrderMetricKey.length > 0
       ? settings.odDrawOrderMetricKey
       : legacyOdMetric ?? DEFAULT_ANALYSIS_SETTINGS.odDrawOrderMetricKey;
+  const odLinkMetricSelections =
+    typeof settings?.odLinkMetricSelections === "boolean"
+      ? settings.odLinkMetricSelections
+      : typeof settings?.odLinkMetrics === "boolean"
+        ? settings.odLinkMetrics
+        : DEFAULT_ANALYSIS_SETTINGS.odLinkMetricSelections;
+  const odLinkVariantValueSelections =
+    typeof settings?.odLinkVariantValueSelections === "boolean"
+      ? settings.odLinkVariantValueSelections
+      : typeof settings?.odLinkVariantValues === "boolean"
+        ? settings.odLinkVariantValues
+        : DEFAULT_ANALYSIS_SETTINGS.odLinkVariantValueSelections;
 
   return {
     mode,
@@ -116,7 +134,9 @@ function normalizeAnalysisSettings(
     velocityScaleMode,
     velocityFixedMax,
     odColorMetricKey: rawOdColorMetricKey,
-    odDrawOrderMetricKey: rawOdDrawOrderMetricKey
+    odDrawOrderMetricKey: rawOdDrawOrderMetricKey,
+    odLinkMetricSelections,
+    odLinkVariantValueSelections
   };
 }
 
@@ -139,7 +159,9 @@ function migrateLegacyVelocitySettings(
     velocityScaleMode: scaleMode,
     velocityFixedMax: fixedMax,
     odColorMetricKey: DEFAULT_ANALYSIS_SETTINGS.odColorMetricKey,
-    odDrawOrderMetricKey: DEFAULT_ANALYSIS_SETTINGS.odDrawOrderMetricKey
+    odDrawOrderMetricKey: DEFAULT_ANALYSIS_SETTINGS.odDrawOrderMetricKey,
+    odLinkMetricSelections: DEFAULT_ANALYSIS_SETTINGS.odLinkMetricSelections,
+    odLinkVariantValueSelections: DEFAULT_ANALYSIS_SETTINGS.odLinkVariantValueSelections
   });
 }
 
@@ -265,7 +287,9 @@ function areAnalysisSettingsEqual(
     left.velocityScaleMode === right.velocityScaleMode &&
     left.velocityFixedMax === right.velocityFixedMax &&
     left.odColorMetricKey === right.odColorMetricKey &&
-    left.odDrawOrderMetricKey === right.odDrawOrderMetricKey
+    left.odDrawOrderMetricKey === right.odDrawOrderMetricKey &&
+    left.odLinkMetricSelections === right.odLinkMetricSelections &&
+    left.odLinkVariantValueSelections === right.odLinkVariantValueSelections
   );
 }
 
@@ -507,9 +531,12 @@ export function createApp(root: HTMLElement): void {
     const odColorMetricKey = availableKeys.has(settings.odColorMetricKey)
       ? settings.odColorMetricKey
       : fallbackKey;
-    const odDrawOrderMetricKey = availableKeys.has(settings.odDrawOrderMetricKey)
+    const resolvedDrawOrderMetricKey = availableKeys.has(settings.odDrawOrderMetricKey)
       ? settings.odDrawOrderMetricKey
       : odColorMetricKey;
+    const odDrawOrderMetricKey = settings.odLinkMetricSelections
+      ? odColorMetricKey
+      : resolvedDrawOrderMetricKey;
 
     if (
       odColorMetricKey === settings.odColorMetricKey &&
@@ -828,6 +855,20 @@ export function createApp(root: HTMLElement): void {
       setAnalysisSettings({
         ...analysisSettings,
         odDrawOrderMetricKey
+      });
+      render();
+    },
+    onAnalysisOdLinkMetricSelectionsChange: (odLinkMetricSelections) => {
+      setAnalysisSettings({
+        ...analysisSettings,
+        odLinkMetricSelections
+      });
+      render();
+    },
+    onAnalysisOdLinkVariantValueSelectionsChange: (odLinkVariantValueSelections) => {
+      setAnalysisSettings({
+        ...analysisSettings,
+        odLinkVariantValueSelections
       });
       render();
     },

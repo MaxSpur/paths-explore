@@ -6,11 +6,11 @@ import { SidebarView } from "../src/ui/sidebar";
 import type { AppState, ImportSummary } from "../src/model/types";
 import type { BundleState } from "../src/model/bundles";
 
-function createSidebar(): SidebarView {
+function createSidebar() {
   const root = document.createElement("div");
   document.body.appendChild(root);
 
-  return new SidebarView(root, {
+  const callbacks = {
     onImportFiles: async () => undefined,
     onToggleVisibility: vi.fn(),
     onToggleBundleVisibility: vi.fn(),
@@ -33,15 +33,23 @@ function createSidebar(): SidebarView {
     onAnalysisColormapChange: vi.fn(),
     onAnalysisOdColorMetricKeyChange: vi.fn(),
     onAnalysisOdDrawOrderMetricKeyChange: vi.fn(),
+    onAnalysisOdLinkMetricSelectionsChange: vi.fn(),
+    onAnalysisOdLinkVariantValueSelectionsChange: vi.fn(),
     onMapBaseStyleChange: vi.fn(),
     onMapDarkenChange: vi.fn(),
     onMapDesaturateChange: vi.fn()
-  });
+  };
+
+  return {
+    root,
+    callbacks,
+    sidebar: new SidebarView(root, callbacks)
+  };
 }
 
 describe("sidebar analysis integration", () => {
   it("rerenders cached state after track collapse without losing map controls", () => {
-    const sidebar = createSidebar();
+    const { sidebar } = createSidebar();
     const state: AppState = {
       tracks: [
         {
@@ -76,7 +84,9 @@ describe("sidebar analysis integration", () => {
         velocityScaleMode: "auto",
         velocityFixedMax: 60,
         odColorMetricKey: "weight",
-        odDrawOrderMetricKey: "weight"
+        odDrawOrderMetricKey: "weight",
+        odLinkMetricSelections: false,
+        odLinkVariantValueSelections: false
       },
       25,
       {
@@ -99,5 +109,45 @@ describe("sidebar analysis integration", () => {
     expect(mapStyleSelect?.value).toBe("carto-light");
     expect(document.querySelector<HTMLElement>("#map-darken-value")?.textContent).toBe("18%");
     expect(document.querySelector<HTMLElement>("#map-desaturate-value")?.textContent).toBe("22%");
+  });
+
+  it("links OD draw-order changes to color metric when metric linking is enabled", () => {
+    const { sidebar, root, callbacks } = createSidebar();
+    const state: AppState = { tracks: [], selectedPointIds: [] };
+    const bundleState: BundleState = { bundles: [] };
+
+    sidebar.render(
+      state,
+      bundleState,
+      undefined,
+      undefined,
+      "move",
+      {
+        mode: "od",
+        colormapId: DEFAULT_COLORMAP_ID,
+        velocityScaleMode: "auto",
+        velocityFixedMax: 60,
+        odColorMetricKey: "weight",
+        odDrawOrderMetricKey: "weight",
+        odLinkMetricSelections: true,
+        odLinkVariantValueSelections: false
+      },
+      0,
+      {
+        baseStyle: "osm-standard",
+        darkenPercent: 0,
+        desaturatePercent: 0
+      }
+    );
+
+    const drawSourceSelect = root.querySelector<HTMLSelectElement>(
+      'select[data-action="analysis-od-draw-source"]'
+    );
+    expect(drawSourceSelect).not.toBeNull();
+    drawSourceSelect!.value = "tripCount";
+    drawSourceSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+
+    expect(callbacks.onAnalysisOdDrawOrderMetricKeyChange).toHaveBeenCalledWith("tripCount");
+    expect(callbacks.onAnalysisOdColorMetricKeyChange).toHaveBeenCalledWith("tripCount");
   });
 });

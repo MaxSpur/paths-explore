@@ -28,6 +28,8 @@ export interface AnalysisSettings {
   velocityFixedMax: number;
   odColorMetricKey: OdMetricKey;
   odDrawOrderMetricKey: OdMetricKey;
+  odLinkMetricSelections: boolean;
+  odLinkVariantValueSelections: boolean;
 }
 
 export interface MapViewSettings {

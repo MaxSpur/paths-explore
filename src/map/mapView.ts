@@ -564,7 +564,9 @@ export class MapView {
         velocityScaleMode: "auto",
         velocityFixedMax: 0,
         odColorMetricKey: "weight",
-        odDrawOrderMetricKey: "weight"
+        odDrawOrderMetricKey: "weight",
+        odLinkMetricSelections: false,
+        odLinkVariantValueSelections: false
       },
       velocitySettings,
       colormap,

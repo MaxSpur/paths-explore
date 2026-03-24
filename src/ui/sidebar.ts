@@ -100,6 +100,8 @@ interface SidebarCallbacks {
   onAnalysisColormapChange: (colormapId: string) => void;
   onAnalysisOdColorMetricKeyChange: (metricKey: string) => void;
   onAnalysisOdDrawOrderMetricKeyChange: (metricKey: string) => void;
+  onAnalysisOdLinkMetricSelectionsChange: (linked: boolean) => void;
+  onAnalysisOdLinkVariantValueSelectionsChange: (linked: boolean) => void;
   onMapBaseStyleChange: (baseStyle: MapBaseStyle) => void;
   onMapDarkenChange: (darkenPercent: number) => void;
   onMapDesaturateChange: (desaturatePercent: number) => void;
@@ -134,7 +136,9 @@ export class SidebarView {
     velocityScaleMode: "auto",
     velocityFixedMax: 60,
     odColorMetricKey: "weight",
-    odDrawOrderMetricKey: "weight"
+    odDrawOrderMetricKey: "weight",
+    odLinkMetricSelections: false,
+    odLinkVariantValueSelections: false
   };
   private lastVelocityMaxDisplayValue = 0;
   private lastMapViewSettings: MapViewSettings = {
@@ -333,6 +337,25 @@ export class SidebarView {
             <label class="velocity-field" id="analysis-od-draw-value-field" hidden>
               <span>Value</span>
               <select data-action="analysis-od-draw-value"></select>
+            </label>
+            <label class="velocity-field" id="analysis-od-link-field" hidden>
+              <span>Link Controls</span>
+              <div class="segmented-control velocity-scale-row" role="group" aria-label="OD selector linking">
+                <button
+                  data-action="analysis-od-toggle-link-metrics"
+                  type="button"
+                  class="segmented-btn velocity-scale-btn"
+                >
+                  Link Metrics
+                </button>
+                <button
+                  data-action="analysis-od-toggle-link-details"
+                  type="button"
+                  class="segmented-btn velocity-scale-btn"
+                >
+                  Link Variant/Value
+                </button>
+              </div>
             </label>
           </div>
           <p class="velocity-meta" id="analysis-meta">Analysis is off.</p>
@@ -789,6 +812,30 @@ export class SidebarView {
         return;
       }
 
+      if (action === "analysis-od-toggle-link-metrics") {
+        const nextLinked = !this.lastAnalysisSettings.odLinkMetricSelections;
+        this.callbacks.onAnalysisOdLinkMetricSelectionsChange(nextLinked);
+        if (nextLinked) {
+          this.emitOdMetricKeyChange("draw-order", this.lastAnalysisSettings.odColorMetricKey);
+        }
+        return;
+      }
+
+      if (action === "analysis-od-toggle-link-details") {
+        const nextLinked = !this.lastAnalysisSettings.odLinkVariantValueSelections;
+        this.callbacks.onAnalysisOdLinkVariantValueSelectionsChange(nextLinked);
+        if (nextLinked && !this.lastAnalysisSettings.odLinkMetricSelections) {
+          const colorDefinition = this.getOdMetricDefinition(this.lastAnalysisSettings.odColorMetricKey);
+          if (colorDefinition) {
+            const linkedMetricKey = this.findLinkedVariantValueMetricKey("draw-order", colorDefinition);
+            if (linkedMetricKey) {
+              this.emitOdMetricKeyChange("draw-order", linkedMetricKey);
+            }
+          }
+        }
+        return;
+      }
+
       const bundleId = button.dataset.bundleId;
       if (bundleId) {
         if (action === "bundle-toggle-visible" || action === "bundle-toggle-visible-mini") {
@@ -947,6 +994,47 @@ export class SidebarView {
     return this.getOdMetricCatalog().find((definition) => definition.key === metricKey);
   }
 
+  private getOdMetricKeyForRole(role: OdMetricSelectorRole): string {
+    return role === "color"
+      ? this.lastAnalysisSettings.odColorMetricKey
+      : this.lastAnalysisSettings.odDrawOrderMetricKey;
+  }
+
+  private emitOdMetricKeyChange(role: OdMetricSelectorRole, metricKey: string): void {
+    if (role === "color") {
+      this.callbacks.onAnalysisOdColorMetricKeyChange(metricKey);
+      return;
+    }
+
+    this.callbacks.onAnalysisOdDrawOrderMetricKeyChange(metricKey);
+  }
+
+  private findLinkedVariantValueMetricKey(
+    targetRole: OdMetricSelectorRole,
+    sourceDefinition: BundleOdMetricDefinition
+  ): string | undefined {
+    if (
+      (sourceDefinition.family !== "category" && sourceDefinition.family !== "time") ||
+      !sourceDefinition.variant ||
+      !sourceDefinition.valueKey
+    ) {
+      return undefined;
+    }
+
+    const targetDefinition = this.getOdMetricDefinition(this.getOdMetricKeyForRole(targetRole));
+    const targetSourceKey = targetDefinition?.sourceKey;
+    if (!targetSourceKey) {
+      return undefined;
+    }
+
+    return this.getOdMetricCatalog().find(
+      (definition) =>
+        definition.sourceKey === targetSourceKey &&
+        definition.variant === sourceDefinition.variant &&
+        definition.valueKey === sourceDefinition.valueKey
+    )?.key;
+  }
+
   private getOdMetricSelectors(role: OdMetricSelectorRole): {
     sourceSelect: HTMLSelectElement | null;
     variantSelect: HTMLSelectElement | null;
@@ -1099,12 +1187,20 @@ export class SidebarView {
       return;
     }
 
-    if (role === "color") {
-      this.callbacks.onAnalysisOdColorMetricKeyChange(nextDefinition.key);
+    const otherRole: OdMetricSelectorRole = role === "color" ? "draw-order" : "color";
+    this.emitOdMetricKeyChange(role, nextDefinition.key);
+
+    if (this.lastAnalysisSettings.odLinkMetricSelections) {
+      this.emitOdMetricKeyChange(otherRole, nextDefinition.key);
       return;
     }
 
-    this.callbacks.onAnalysisOdDrawOrderMetricKeyChange(nextDefinition.key);
+    if (this.lastAnalysisSettings.odLinkVariantValueSelections) {
+      const linkedMetricKey = this.findLinkedVariantValueMetricKey(otherRole, nextDefinition);
+      if (linkedMetricKey) {
+        this.emitOdMetricKeyChange(otherRole, linkedMetricKey);
+      }
+    }
   }
 
   private collapseAll(): void {
@@ -1507,6 +1603,33 @@ export class SidebarView {
     this.syncOdMetricSelectors("color", analysisSettings.odColorMetricKey, odEnabled);
     this.syncOdMetricSelectors("draw-order", analysisSettings.odDrawOrderMetricKey, odEnabled);
 
+    const odLinkField = this.root.querySelector<HTMLElement>("#analysis-od-link-field");
+    if (odLinkField) {
+      odLinkField.hidden = !odEnabled;
+    }
+
+    const odLinkMetricsButton = this.root.querySelector<HTMLButtonElement>(
+      'button[data-action="analysis-od-toggle-link-metrics"]'
+    );
+    if (odLinkMetricsButton) {
+      const isActive = analysisSettings.odLinkMetricSelections;
+      odLinkMetricsButton.classList.toggle("is-active", isActive);
+      odLinkMetricsButton.classList.toggle("is-inactive", !isActive);
+      odLinkMetricsButton.setAttribute("aria-pressed", isActive ? "true" : "false");
+      odLinkMetricsButton.disabled = !odEnabled;
+    }
+
+    const odLinkDetailsButton = this.root.querySelector<HTMLButtonElement>(
+      'button[data-action="analysis-od-toggle-link-details"]'
+    );
+    if (odLinkDetailsButton) {
+      const isActive = analysisSettings.odLinkVariantValueSelections;
+      odLinkDetailsButton.classList.toggle("is-active", isActive);
+      odLinkDetailsButton.classList.toggle("is-inactive", !isActive);
+      odLinkDetailsButton.setAttribute("aria-pressed", isActive ? "true" : "false");
+      odLinkDetailsButton.disabled = !odEnabled;
+    }
+
     const maxInput = this.root.querySelector<HTMLInputElement>('input[data-action="analysis-velocity-max"]');
     const maxSlider = this.root.querySelector<HTMLInputElement>(
       'input[data-action="analysis-velocity-max-slider"]'
@@ -1560,7 +1683,11 @@ export class SidebarView {
       const drawMetric = this.getOdMetricDefinition(analysisSettings.odDrawOrderMetricKey);
       const colorLabel = colorMetric?.label ?? "Weight";
       const drawLabel = drawMetric?.label ?? colorLabel;
-      analysisMeta.textContent = `Color/rank uses ${colorLabel}. Draw order uses ${drawLabel}.`;
+      const metricLinkLabel = analysisSettings.odLinkMetricSelections ? "linked" : "independent";
+      const detailLinkLabel = analysisSettings.odLinkVariantValueSelections
+        ? "variant/value linked"
+        : "variant/value independent";
+      analysisMeta.textContent = `Color/rank uses ${colorLabel}. Draw order uses ${drawLabel}. Metrics are ${metricLinkLabel}; ${detailLinkLabel}.`;
       return;
     }
 

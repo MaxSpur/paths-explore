@@ -55,6 +55,7 @@ Map-first GPX/KML/GeoJSON/CSV viewer and editor built with Vite + TypeScript + L
 - Velocity/acceleration scale modes: `Auto` (visible tracks) or `Fixed`.
 - OD mode colors weighted OD edges with the same perceptual colormap system used for track metrics.
 - OD mode now separates `Color / Rank by` from `Draw on top by`, so the strongest flows can be drawn last without changing ranking or the histogram.
+- OD mode also includes `Link Metrics` and `Link Variant/Value` toggles for quickly coupling the two OD selector stacks when you do want synchronized color and render ordering.
 - OD metric sources can come from numeric edge fields (`weight`, `tripCount`, mean duration), categorical composition shares/subtotals, and departure-time bin shares/subtotals.
 - CSV colormap auto-discovery from `src/colormaps/*.csv`.
 - `Info` mode can open segment popups with metric/distance/duration/point details.
