@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { deflateRawSync } from "node:zlib";
 import { parseBundleFile } from "../src/io/bundleFormat";
-import { BundleStore, extractBundleTrajectoryAsTrack } from "../src/model/bundles";
+import {
+  BundleStore,
+  extractBundleTrajectoryAsTrack,
+  getOdEdgeMetricValue
+} from "../src/model/bundles";
 import { TrackStore } from "../src/model/store";
 import type { TrajectoryBundle } from "../src/model/bundles";
 import type { Track } from "../src/model/types";
@@ -297,6 +301,138 @@ function buildLegacyOdBundleArchive(compressionMethod: 0 | 8 = 0): File {
   return new File([bundleBytes], "legacy-od.psbundle.zip", { type: "application/zip" });
 }
 
+function buildRichOdBundleArchive(compressionMethod: 0 | 8 = 0): File {
+  const manifest = {
+    version: 1,
+    id: "bundle-od-rich",
+    name: "Rich OD Bundle",
+    sourceFiles: ["synthetic.parquet"],
+    trajectoryKind: "od-edge",
+    counts: {
+      trajectoryCount: 1,
+      overlayLayerCount: 0,
+      overlayFeatureCount: 0
+    },
+    odMetrics: {
+      metrics: [
+        {
+          key: "weight",
+          label: "Weight",
+          family: "numeric",
+          sourceKey: "weight",
+          sourceLabel: "Weight",
+          unitLabel: "weight",
+          order: 0
+        },
+        {
+          key: "tripCount",
+          label: "Trip Count",
+          family: "numeric",
+          sourceKey: "tripCount",
+          sourceLabel: "Trip Count",
+          unitLabel: "trips",
+          order: 1
+        },
+        {
+          key: "durationMean",
+          label: "Mean Duration",
+          family: "numeric",
+          sourceKey: "durationMean",
+          sourceLabel: "Mean Duration",
+          unitLabel: "min",
+          order: 2
+        },
+        {
+          key: "category|mode_principal|subtotal|METRO",
+          label: "Mode: METRO (Subtotal)",
+          family: "category",
+          sourceKey: "mode_principal",
+          sourceLabel: "Mode",
+          variant: "subtotal",
+          valueKey: "METRO",
+          valueLabel: "METRO",
+          unitLabel: "weight",
+          order: 10
+        },
+        {
+          key: "category|mode_principal|share|METRO",
+          label: "Mode: METRO (Share)",
+          family: "category",
+          sourceKey: "mode_principal",
+          sourceLabel: "Mode",
+          variant: "share",
+          valueKey: "METRO",
+          valueLabel: "METRO",
+          unitLabel: "%",
+          order: 11
+        }
+      ]
+    },
+    trajectories: [
+      {
+        id: "od-1",
+        name: "Linas -> Marcoussis",
+        pointCount: 2,
+        simplifiedPointCount: 2,
+        properties: {
+          weight: 42.5,
+          tripCount: 7,
+          durationMean: 18.2,
+          originCode: "91339",
+          originName: "LINAS",
+          destinationCode: "91363",
+          destinationName: "MARCOUSSIS"
+        },
+        metricValues: {
+          weight: 42.5,
+          tripCount: 7,
+          durationMean: 18.2,
+          "category|mode_principal|subtotal|METRO": 21.25,
+          "category|mode_principal|share|METRO": 0.5
+        }
+      }
+    ],
+    overlays: [],
+    renderFile: "render-trajectories.json",
+    extractionFile: "extraction-trajectories.json"
+  };
+
+  const renderPayload = {
+    trajectories: [
+      {
+        id: "od-1",
+        path: [
+          [48.626192714, 2.251820631],
+          [48.646351528, 2.206111538]
+        ]
+      }
+    ]
+  };
+
+  const extractionPayload = {
+    trajectories: [
+      {
+        id: "od-1",
+        name: "Linas -> Marcoussis",
+        properties: manifest.trajectories[0].properties,
+        points: [
+          { lat: 48.626192714, lng: 2.251820631 },
+          { lat: 48.646351528, lng: 2.206111538 }
+        ]
+      }
+    ]
+  };
+
+  const zipBuilder = compressionMethod === 8 ? buildDeflatedZip : buildStoredZip;
+  const bundleBytes = zipBuilder([
+    { name: "manifest.json", content: JSON.stringify(manifest) },
+    { name: "render-trajectories.json", content: JSON.stringify(renderPayload) },
+    { name: "extraction-trajectories.json", content: JSON.stringify(extractionPayload) }
+  ]);
+
+  return new File([bundleBytes], "rich-od.psbundle.zip", { type: "application/zip" });
+}
+
 function buildTrack(id: string, name: string): Track {
   return {
     id,
@@ -375,7 +511,24 @@ describe("bundle format", () => {
     const loadedBundle = bundleStore.getState().bundles[0];
 
     expect(parsedBundle.manifest.trajectoryKind).toBe("od-edge");
+    expect(parsedBundle.manifest.odMetrics?.metrics.map((metric) => metric.key)).toEqual([
+      "weight",
+      "tripCount"
+    ]);
     expect(loadedBundle.extractionEnabled).toBe(false);
+  });
+
+  it("preserves rich OD metric catalogs and per-edge metric values", async () => {
+    const parsedBundle = await parseBundleFile(buildRichOdBundleArchive(8));
+
+    expect(parsedBundle.manifest.trajectoryKind).toBe("od-edge");
+    expect(parsedBundle.manifest.odMetrics?.metrics.some((metric) => metric.key === "durationMean")).toBe(
+      true
+    );
+    expect(parsedBundle.trajectoryRefById.get("od-1")?.metricValues?.durationMean).toBe(18.2);
+    expect(
+      getOdEdgeMetricValue(parsedBundle, "od-1", "category|mode_principal|share|METRO")
+    ).toBe(0.5);
   });
 
   it("keeps bundle state separate from the editable track store", async () => {

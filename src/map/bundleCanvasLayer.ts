@@ -2,7 +2,7 @@ import L from "leaflet";
 import { sampleColormapColor } from "../colormaps";
 import type { BundleBounds, LoadedTrajectoryBundle } from "../model/bundles";
 import { getOdEdgeMetricValue, isBundleBoundsValid, isOdEdgeBundle } from "../model/bundles";
-import type { AnalysisMode, OdMetric } from "../model/types";
+import type { AnalysisMode } from "../model/types";
 
 export interface BundleSelectionTarget {
   bundleId: string;
@@ -12,8 +12,18 @@ export interface BundleSelectionTarget {
 interface BundleAnalysisContext {
   mode: AnalysisMode;
   colormapColors: Array<{ r: number; g: number; b: number }>;
-  odMetric: OdMetric;
+  odColorMetricKey: string;
+  odDrawOrderMetricKey: string;
   selectedOdEdge?: BundleSelectionTarget;
+}
+
+interface RenderableOdEdge {
+  bundle: LoadedTrajectoryBundle;
+  trajectoryId: string;
+  path: Array<[lat: number, lng: number]>;
+  colorMetricValue: number;
+  drawOrderMetricValue: number;
+  selected: boolean;
 }
 
 function bundleBoundsToLeaflet(bounds: BundleBounds | undefined): L.LatLngBounds | null {
@@ -56,7 +66,8 @@ export class BundleCanvasLayer extends L.Layer {
   private analysisContext: BundleAnalysisContext = {
     mode: "off",
     colormapColors: [],
-    odMetric: "weight"
+    odColorMetricKey: "weight",
+    odDrawOrderMetricKey: "weight"
   };
 
   constructor(hitTolerancePx = 10) {
@@ -160,22 +171,22 @@ export class BundleCanvasLayer extends L.Layer {
       return null;
     }
 
-    const clickPoint = this.mapRef.latLngToContainerPoint(latLng);
+    const clickPoint = this.mapRef.latLngToLayerPoint(latLng);
     const north = this.mapRef.containerPointToLatLng([
-      clickPoint.x,
-      clickPoint.y - this.hitTolerancePx
+      this.mapRef.latLngToContainerPoint(latLng).x,
+      this.mapRef.latLngToContainerPoint(latLng).y - this.hitTolerancePx
     ]);
     const south = this.mapRef.containerPointToLatLng([
-      clickPoint.x,
-      clickPoint.y + this.hitTolerancePx
+      this.mapRef.latLngToContainerPoint(latLng).x,
+      this.mapRef.latLngToContainerPoint(latLng).y + this.hitTolerancePx
     ]);
     const east = this.mapRef.containerPointToLatLng([
-      clickPoint.x + this.hitTolerancePx,
-      clickPoint.y
+      this.mapRef.latLngToContainerPoint(latLng).x + this.hitTolerancePx,
+      this.mapRef.latLngToContainerPoint(latLng).y
     ]);
     const west = this.mapRef.containerPointToLatLng([
-      clickPoint.x - this.hitTolerancePx,
-      clickPoint.y
+      this.mapRef.latLngToContainerPoint(latLng).x - this.hitTolerancePx,
+      this.mapRef.latLngToContainerPoint(latLng).y
     ]);
     const latPadding = Math.max(Math.abs(north.lat - latLng.lat), Math.abs(south.lat - latLng.lat));
     const lngPadding = Math.max(Math.abs(east.lng - latLng.lng), Math.abs(west.lng - latLng.lng));
@@ -209,8 +220,8 @@ export class BundleCanvasLayer extends L.Layer {
             continue;
           }
 
-          const startPoint = this.mapRef.latLngToContainerPoint(start);
-          const endPoint = this.mapRef.latLngToContainerPoint(end);
+          const startPoint = this.mapRef.latLngToLayerPoint(start);
+          const endPoint = this.mapRef.latLngToLayerPoint(end);
           const distanceSquared = pointToSegmentDistanceSquared(clickPoint, startPoint, endPoint);
 
           if (distanceSquared <= bestDistanceSquared) {
@@ -248,25 +259,32 @@ export class BundleCanvasLayer extends L.Layer {
 
     context.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
     context.clearRect(0, 0, size.x, size.y);
-    const odScaleMax = this.getVisibleOdMetricScaleMax();
 
     for (const bundle of this.bundles) {
       if (!bundle.visible) {
         continue;
       }
 
-      this.drawTrajectories(context, bundle, odScaleMax);
-
       if (bundle.overlaysVisible) {
-        this.drawOverlays(context, bundle);
+        this.drawOverlays(context, bundle, topLeft);
       }
+
+      if (this.analysisContext.mode === "od" && isOdEdgeBundle(bundle)) {
+        continue;
+      }
+
+      this.drawTrajectories(context, bundle, topLeft);
+    }
+
+    if (this.analysisContext.mode === "od") {
+      this.drawSortedOdEdges(context, topLeft);
     }
   };
 
   private drawTrajectories(
     context: CanvasRenderingContext2D,
     bundle: LoadedTrajectoryBundle,
-    odScaleMax: number
+    topLeft: L.Point
   ): void {
     if (!this.mapRef) {
       return;
@@ -279,78 +297,124 @@ export class BundleCanvasLayer extends L.Layer {
       return;
     }
 
-    if (this.analysisContext.mode !== "od" || !isOdEdgeBundle(bundle) || odScaleMax <= 0) {
-      context.save();
-      context.beginPath();
-      context.lineWidth = 1.35;
-      context.lineCap = "round";
-      context.lineJoin = "round";
-      context.strokeStyle = bundle.color;
-      context.globalAlpha = isOdEdgeBundle(bundle) ? 0.34 : 0.53;
-
-      for (const trajectory of trajectories) {
-        this.traceTrajectoryPath(context, trajectory.path);
-      }
-
-      context.stroke();
-      context.restore();
-      return;
-    }
-
-    const selectedTarget = this.analysisContext.selectedOdEdge;
-    const selectedId =
-      selectedTarget && selectedTarget.bundleId === bundle.id ? selectedTarget.trajectoryId : undefined;
+    context.save();
+    context.beginPath();
+    context.lineWidth = 1.35;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.strokeStyle = bundle.color;
+    context.globalAlpha = isOdEdgeBundle(bundle) ? 0.34 : 0.53;
 
     for (const trajectory of trajectories) {
-      if (trajectory.id === selectedId) {
-        continue;
-      }
-
-      context.save();
-      context.beginPath();
-      context.lineWidth = 2.15;
-      context.lineCap = "round";
-      context.lineJoin = "round";
-      context.strokeStyle = this.getOdEdgeStrokeColor(bundle, trajectory.id, odScaleMax);
-      context.globalAlpha = 0.72;
-      this.traceTrajectoryPath(context, trajectory.path);
-      context.stroke();
-      context.restore();
+      this.traceTrajectoryPath(context, trajectory.path, topLeft);
     }
 
-    if (!selectedId) {
-      return;
-    }
-
-    const selectedTrajectory = bundle.bundle.renderTrajectoryById.get(selectedId);
-    if (!selectedTrajectory || selectedTrajectory.path.length < 2) {
-      return;
-    }
-
-    context.save();
-    context.beginPath();
-    context.lineWidth = 7.5;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.strokeStyle = "rgba(12, 18, 24, 0.9)";
-    context.globalAlpha = 1;
-    this.traceTrajectoryPath(context, selectedTrajectory.path);
-    context.stroke();
-    context.restore();
-
-    context.save();
-    context.beginPath();
-    context.lineWidth = 4.2;
-    context.lineCap = "round";
-    context.lineJoin = "round";
-    context.strokeStyle = this.getOdEdgeStrokeColor(bundle, selectedId, odScaleMax);
-    context.globalAlpha = 1;
-    this.traceTrajectoryPath(context, selectedTrajectory.path);
     context.stroke();
     context.restore();
   }
 
-  private drawOverlays(context: CanvasRenderingContext2D, bundle: LoadedTrajectoryBundle): void {
+  private drawSortedOdEdges(context: CanvasRenderingContext2D, topLeft: L.Point): void {
+    const colorScaleMax = this.getVisibleOdMetricScaleMax(this.analysisContext.odColorMetricKey);
+    const edges = this.collectVisibleOdEdges().sort((left, right) => {
+      if (left.selected !== right.selected) {
+        return left.selected ? 1 : -1;
+      }
+
+      if (left.drawOrderMetricValue !== right.drawOrderMetricValue) {
+        return left.drawOrderMetricValue - right.drawOrderMetricValue;
+      }
+
+      if (left.colorMetricValue !== right.colorMetricValue) {
+        return left.colorMetricValue - right.colorMetricValue;
+      }
+
+      return `${left.bundle.id}:${left.trajectoryId}`.localeCompare(
+        `${right.bundle.id}:${right.trajectoryId}`
+      );
+    });
+
+    for (const edge of edges) {
+      this.drawOdEdge(context, edge, colorScaleMax, topLeft);
+    }
+  }
+
+  private collectVisibleOdEdges(): RenderableOdEdge[] {
+    const selectedTarget = this.analysisContext.selectedOdEdge;
+    const edges: RenderableOdEdge[] = [];
+
+    for (const bundle of this.bundles) {
+      if (!bundle.visible || !isOdEdgeBundle(bundle)) {
+        continue;
+      }
+
+      for (const trajectory of bundle.bundle.renderTrajectories) {
+        if (trajectory.path.length < 2) {
+          continue;
+        }
+
+        edges.push({
+          bundle,
+          trajectoryId: trajectory.id,
+          path: trajectory.path,
+          colorMetricValue:
+            getOdEdgeMetricValue(
+              bundle.bundle,
+              trajectory.id,
+              this.analysisContext.odColorMetricKey
+            ) ?? 0,
+          drawOrderMetricValue:
+            getOdEdgeMetricValue(
+              bundle.bundle,
+              trajectory.id,
+              this.analysisContext.odDrawOrderMetricKey
+            ) ?? 0,
+          selected:
+            selectedTarget?.bundleId === bundle.id && selectedTarget?.trajectoryId === trajectory.id
+        });
+      }
+    }
+
+    return edges;
+  }
+
+  private drawOdEdge(
+    context: CanvasRenderingContext2D,
+    edge: RenderableOdEdge,
+    colorScaleMax: number,
+    topLeft: L.Point
+  ): void {
+    const strokeColor = this.getOdEdgeStrokeColor(edge.bundle, edge.trajectoryId, colorScaleMax);
+
+    if (edge.selected) {
+      context.save();
+      context.beginPath();
+      context.lineWidth = 7.5;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.strokeStyle = "rgba(12, 18, 24, 0.92)";
+      context.globalAlpha = 1;
+      this.traceTrajectoryPath(context, edge.path, topLeft);
+      context.stroke();
+      context.restore();
+    }
+
+    context.save();
+    context.beginPath();
+    context.lineWidth = edge.selected ? 4.2 : 2.15;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    context.strokeStyle = strokeColor;
+    context.globalAlpha = edge.selected ? 1 : 0.72;
+    this.traceTrajectoryPath(context, edge.path, topLeft);
+    context.stroke();
+    context.restore();
+  }
+
+  private drawOverlays(
+    context: CanvasRenderingContext2D,
+    bundle: LoadedTrajectoryBundle,
+    topLeft: L.Point
+  ): void {
     if (!this.mapRef) {
       return;
     }
@@ -370,8 +434,7 @@ export class BundleCanvasLayer extends L.Layer {
 
           for (const ring of feature.rings) {
             ring.forEach(([lat, lng], index) => {
-              const point = this.mapRef!.latLngToLayerPoint([lat, lng]);
-              const canvasPoint = this.mapRef!.latLngToContainerPoint([lat, lng]);
+              const canvasPoint = this.mapRef!.latLngToLayerPoint([lat, lng]).subtract(topLeft);
               if (index === 0) {
                 context.moveTo(canvasPoint.x, canvasPoint.y);
               } else {
@@ -397,7 +460,7 @@ export class BundleCanvasLayer extends L.Layer {
         }
 
         const [lat, lng] = feature.coordinates;
-        const point = this.mapRef.latLngToContainerPoint([lat, lng]);
+        const point = this.mapRef.latLngToLayerPoint([lat, lng]).subtract(topLeft);
         context.beginPath();
         context.arc(point.x, point.y, 2.5, 0, Math.PI * 2);
         context.fill();
@@ -407,7 +470,7 @@ export class BundleCanvasLayer extends L.Layer {
     }
   }
 
-  private getVisibleOdMetricScaleMax(): number {
+  private getVisibleOdMetricScaleMax(metricKey: string): number {
     if (this.analysisContext.mode !== "od") {
       return 0;
     }
@@ -419,11 +482,7 @@ export class BundleCanvasLayer extends L.Layer {
       }
 
       for (const trajectory of bundle.bundle.renderTrajectories) {
-        const value = getOdEdgeMetricValue(
-          bundle.bundle,
-          trajectory.id,
-          this.analysisContext.odMetric
-        );
+        const value = getOdEdgeMetricValue(bundle.bundle, trajectory.id, metricKey);
         if (value && value > maxMetric) {
           maxMetric = value;
         }
@@ -438,11 +497,7 @@ export class BundleCanvasLayer extends L.Layer {
     trajectoryId: string,
     scaleMax: number
   ): string {
-    const value = getOdEdgeMetricValue(
-      bundle.bundle,
-      trajectoryId,
-      this.analysisContext.odMetric
-    );
+    const value = getOdEdgeMetricValue(bundle.bundle, trajectoryId, this.analysisContext.odColorMetricKey);
     const normalized = scaleMax > 0 && value ? Math.max(0, Math.min(1, value / scaleMax)) : 0;
     if (this.analysisContext.colormapColors.length === 0) {
       return bundle.color;
@@ -453,7 +508,8 @@ export class BundleCanvasLayer extends L.Layer {
 
   private traceTrajectoryPath(
     context: CanvasRenderingContext2D,
-    path: Array<[lat: number, lng: number]>
+    path: Array<[lat: number, lng: number]>,
+    topLeft: L.Point
   ): void {
     if (!this.mapRef || path.length < 2) {
       return;
@@ -461,7 +517,7 @@ export class BundleCanvasLayer extends L.Layer {
 
     for (let index = 0; index < path.length; index += 1) {
       const [lat, lng] = path[index];
-      const point = this.mapRef.latLngToContainerPoint([lat, lng]);
+      const point = this.mapRef.latLngToLayerPoint([lat, lng]).subtract(topLeft);
 
       if (index === 0) {
         context.moveTo(point.x, point.y);

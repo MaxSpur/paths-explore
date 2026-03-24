@@ -6,10 +6,16 @@ import type {
   ImportSummary,
   MapBaseStyle,
   MapViewSettings,
-  OdMetric,
   VelocityScaleMode,
 } from "../model/types";
-import { isOdEdgeBundle, type BundleState } from "../model/bundles";
+import {
+  getAvailableOdMetricCatalog,
+  isOdEdgeBundle,
+  type BundleOdMetricDefinition,
+  type BundleOdMetricFamily,
+  type BundleOdMetricVariant,
+  type BundleState
+} from "../model/bundles";
 import { COLORMAPS, DEFAULT_COLORMAP_ID } from "../colormaps";
 
 const SIDEBAR_SECTION_IDS = ["import", "bundles", "edit", "map", "velocity", "tracks"] as const;
@@ -92,10 +98,20 @@ interface SidebarCallbacks {
   onAnalysisVelocityScaleModeChange: (mode: VelocityScaleMode) => void;
   onAnalysisVelocityFixedMaxChange: (maxValue: number) => void;
   onAnalysisColormapChange: (colormapId: string) => void;
-  onAnalysisOdMetricChange: (metric: OdMetric) => void;
+  onAnalysisOdColorMetricKeyChange: (metricKey: string) => void;
+  onAnalysisOdDrawOrderMetricKeyChange: (metricKey: string) => void;
   onMapBaseStyleChange: (baseStyle: MapBaseStyle) => void;
   onMapDarkenChange: (darkenPercent: number) => void;
   onMapDesaturateChange: (desaturatePercent: number) => void;
+}
+
+type OdMetricSelectorRole = "color" | "draw-order";
+
+interface OdMetricSourceOption {
+  sourceKey: string;
+  family: BundleOdMetricFamily;
+  sourceLabel: string;
+  definitions: BundleOdMetricDefinition[];
 }
 
 export class SidebarView {
@@ -117,7 +133,8 @@ export class SidebarView {
     colormapId: DEFAULT_COLORMAP_ID,
     velocityScaleMode: "auto",
     velocityFixedMax: 60,
-    odMetric: "weight"
+    odColorMetricKey: "weight",
+    odDrawOrderMetricKey: "weight"
   };
   private lastVelocityMaxDisplayValue = 0;
   private lastMapViewSettings: MapViewSettings = {
@@ -293,16 +310,29 @@ export class SidebarView {
                 ${colormapOptions}
               </select>
             </label>
-            <label class="velocity-field" id="analysis-od-metric-field" hidden>
-              <span>OD Metric</span>
-              <div class="segmented-control velocity-scale-row" role="group" aria-label="OD metric">
-                <button data-action="analysis-od-metric" data-od-metric="weight" type="button" class="segmented-btn velocity-scale-btn">
-                  Weight
-                </button>
-                <button data-action="analysis-od-metric" data-od-metric="tripCount" type="button" class="segmented-btn velocity-scale-btn">
-                  Trip Count
-                </button>
-              </div>
+            <label class="velocity-field" id="analysis-od-color-source-field" hidden>
+              <span>Color / Rank by</span>
+              <select data-action="analysis-od-color-source"></select>
+            </label>
+            <label class="velocity-field" id="analysis-od-color-variant-field" hidden>
+              <span>Variant</span>
+              <select data-action="analysis-od-color-variant"></select>
+            </label>
+            <label class="velocity-field" id="analysis-od-color-value-field" hidden>
+              <span>Value</span>
+              <select data-action="analysis-od-color-value"></select>
+            </label>
+            <label class="velocity-field" id="analysis-od-draw-source-field" hidden>
+              <span>Draw on top by</span>
+              <select data-action="analysis-od-draw-source"></select>
+            </label>
+            <label class="velocity-field" id="analysis-od-draw-variant-field" hidden>
+              <span>Variant</span>
+              <select data-action="analysis-od-draw-variant"></select>
+            </label>
+            <label class="velocity-field" id="analysis-od-draw-value-field" hidden>
+              <span>Value</span>
+              <select data-action="analysis-od-draw-value"></select>
             </label>
           </div>
           <p class="velocity-meta" id="analysis-meta">Analysis is off.</p>
@@ -632,6 +662,18 @@ export class SidebarView {
           if (MAP_STYLE_OPTIONS.some((option) => option.id === style)) {
             this.callbacks.onMapBaseStyleChange(style as MapBaseStyle);
           }
+        } else if (
+          action === "analysis-od-color-source" ||
+          action === "analysis-od-color-variant" ||
+          action === "analysis-od-color-value"
+        ) {
+          this.applyOdMetricSelection("color");
+        } else if (
+          action === "analysis-od-draw-source" ||
+          action === "analysis-od-draw-variant" ||
+          action === "analysis-od-draw-value"
+        ) {
+          this.applyOdMetricSelection("draw-order");
         }
 
         return;
@@ -743,14 +785,6 @@ export class SidebarView {
         const mode = button.dataset.scale;
         if (mode === "auto" || mode === "fixed") {
           this.callbacks.onAnalysisVelocityScaleModeChange(mode);
-        }
-        return;
-      }
-
-      if (action === "analysis-od-metric") {
-        const metric = button.dataset.odMetric;
-        if (metric === "weight" || metric === "tripCount") {
-          this.callbacks.onAnalysisOdMetricChange(metric);
         }
         return;
       }
@@ -878,6 +912,199 @@ export class SidebarView {
 
       this.callbacks.onAnalysisVelocityFixedMaxChange(nextValue);
     });
+  }
+
+  private getOdMetricCatalog(): BundleOdMetricDefinition[] {
+    return getAvailableOdMetricCatalog(this.lastBundleState.bundles);
+  }
+
+  private getOdMetricSourceOptions(): OdMetricSourceOption[] {
+    const optionsBySource = new Map<string, OdMetricSourceOption>();
+
+    for (const definition of this.getOdMetricCatalog()) {
+      const existing = optionsBySource.get(definition.sourceKey);
+      if (existing) {
+        existing.definitions.push(definition);
+        continue;
+      }
+
+      optionsBySource.set(definition.sourceKey, {
+        sourceKey: definition.sourceKey,
+        family: definition.family,
+        sourceLabel: definition.sourceLabel,
+        definitions: [definition]
+      });
+    }
+
+    return Array.from(optionsBySource.values());
+  }
+
+  private getOdMetricSourceOption(sourceKey: string): OdMetricSourceOption | undefined {
+    return this.getOdMetricSourceOptions().find((option) => option.sourceKey === sourceKey);
+  }
+
+  private getOdMetricDefinition(metricKey: string): BundleOdMetricDefinition | undefined {
+    return this.getOdMetricCatalog().find((definition) => definition.key === metricKey);
+  }
+
+  private getOdMetricSelectors(role: OdMetricSelectorRole): {
+    sourceSelect: HTMLSelectElement | null;
+    variantSelect: HTMLSelectElement | null;
+    valueSelect: HTMLSelectElement | null;
+    sourceField: HTMLElement | null;
+    variantField: HTMLElement | null;
+    valueField: HTMLElement | null;
+  } {
+    const prefix = role === "color" ? "analysis-od-color" : "analysis-od-draw";
+    return {
+      sourceSelect: this.root.querySelector<HTMLSelectElement>(`select[data-action="${prefix}-source"]`),
+      variantSelect: this.root.querySelector<HTMLSelectElement>(`select[data-action="${prefix}-variant"]`),
+      valueSelect: this.root.querySelector<HTMLSelectElement>(`select[data-action="${prefix}-value"]`),
+      sourceField: this.root.querySelector<HTMLElement>(`#${prefix}-source-field`),
+      variantField: this.root.querySelector<HTMLElement>(`#${prefix}-variant-field`),
+      valueField: this.root.querySelector<HTMLElement>(`#${prefix}-value-field`)
+    };
+  }
+
+  private setSelectOptions(
+    select: HTMLSelectElement | null,
+    options: Array<{ value: string; label: string }>,
+    nextValue: string,
+    disabled: boolean
+  ): void {
+    if (!select) {
+      return;
+    }
+
+    select.innerHTML = options
+      .map((option) => `<option value="${this.escapeAttribute(option.value)}">${this.escapeHtml(option.label)}</option>`)
+      .join("");
+    const optionExists = options.some((option) => option.value === nextValue);
+    select.value = optionExists ? nextValue : options[0]?.value ?? "";
+    select.disabled = disabled || options.length <= 1;
+  }
+
+  private syncOdMetricSelectors(
+    role: OdMetricSelectorRole,
+    metricKey: string,
+    enabled: boolean
+  ): void {
+    const selectors = this.getOdMetricSelectors(role);
+    const sourceOptions = this.getOdMetricSourceOptions();
+    const definition =
+      this.getOdMetricDefinition(metricKey) ?? this.getOdMetricCatalog()[0];
+    const resolvedSource =
+      (definition && this.getOdMetricSourceOption(definition.sourceKey)) ?? sourceOptions[0];
+
+    if (selectors.sourceField) {
+      selectors.sourceField.hidden = !enabled;
+    }
+
+    this.setSelectOptions(
+      selectors.sourceSelect,
+      sourceOptions.map((option) => ({
+        value: option.sourceKey,
+        label: option.sourceLabel
+      })),
+      resolvedSource?.sourceKey ?? "",
+      !enabled
+    );
+
+    const supportsVariantAndValue =
+      enabled &&
+      resolvedSource !== undefined &&
+      (resolvedSource.family === "category" || resolvedSource.family === "time");
+
+    if (selectors.variantField) {
+      selectors.variantField.hidden = !supportsVariantAndValue;
+    }
+    if (selectors.valueField) {
+      selectors.valueField.hidden = !supportsVariantAndValue;
+    }
+
+    if (!supportsVariantAndValue || !resolvedSource) {
+      if (selectors.variantSelect) {
+        selectors.variantSelect.innerHTML = "";
+        selectors.variantSelect.disabled = true;
+      }
+      if (selectors.valueSelect) {
+        selectors.valueSelect.innerHTML = "";
+        selectors.valueSelect.disabled = true;
+      }
+      return;
+    }
+
+    const variants = Array.from(
+      new Set(
+        resolvedSource.definitions
+          .map((candidate) => candidate.variant)
+          .filter((candidate): candidate is BundleOdMetricVariant => candidate === "share" || candidate === "subtotal")
+      )
+    );
+    const resolvedVariant =
+      variants.includes(definition?.variant as BundleOdMetricVariant)
+        ? (definition?.variant as BundleOdMetricVariant)
+        : variants[0];
+    const definitionsForVariant = resolvedSource.definitions.filter(
+      (candidate) => candidate.variant === resolvedVariant
+    );
+    const valueOptions = definitionsForVariant.map((candidate) => ({
+      value: candidate.valueKey ?? candidate.key,
+      label: candidate.valueLabel ?? candidate.label
+    }));
+    const resolvedValue =
+      definitionsForVariant.some((candidate) => candidate.valueKey === definition?.valueKey)
+        ? (definition?.valueKey ?? definitionsForVariant[0]?.valueKey ?? "")
+        : (definitionsForVariant[0]?.valueKey ?? "");
+
+    this.setSelectOptions(
+      selectors.variantSelect,
+      variants.map((variant) => ({
+        value: variant,
+        label: variant === "share" ? "Share" : "Subtotal"
+      })),
+      resolvedVariant,
+      !enabled
+    );
+    this.setSelectOptions(selectors.valueSelect, valueOptions, resolvedValue, !enabled);
+  }
+
+  private applyOdMetricSelection(role: OdMetricSelectorRole): void {
+    const selectors = this.getOdMetricSelectors(role);
+    const sourceKey = selectors.sourceSelect?.value;
+    if (!sourceKey) {
+      return;
+    }
+
+    const source = this.getOdMetricSourceOption(sourceKey);
+    if (!source) {
+      return;
+    }
+
+    let nextDefinition: BundleOdMetricDefinition | undefined;
+    if (source.family === "numeric") {
+      nextDefinition = source.definitions[0];
+    } else {
+      const variant = selectors.variantSelect?.value;
+      const valueKey = selectors.valueSelect?.value;
+      nextDefinition = source.definitions.find(
+        (definition) => definition.variant === variant && definition.valueKey === valueKey
+      );
+      if (!nextDefinition) {
+        nextDefinition = source.definitions[0];
+      }
+    }
+
+    if (!nextDefinition) {
+      return;
+    }
+
+    if (role === "color") {
+      this.callbacks.onAnalysisOdColorMetricKeyChange(nextDefinition.key);
+      return;
+    }
+
+    this.callbacks.onAnalysisOdDrawOrderMetricKeyChange(nextDefinition.key);
   }
 
   private collapseAll(): void {
@@ -1260,17 +1487,6 @@ export class SidebarView {
       button.disabled = !velocityEnabled;
     });
 
-    const odMetricButtons = this.root.querySelectorAll<HTMLButtonElement>(
-      'button[data-action="analysis-od-metric"]'
-    );
-    odMetricButtons.forEach((button) => {
-      const isActive = button.dataset.odMetric === analysisSettings.odMetric;
-      button.classList.toggle("is-active", isActive);
-      button.classList.toggle("is-inactive", !isActive);
-      button.setAttribute("aria-pressed", isActive ? "true" : "false");
-      button.disabled = !odEnabled;
-    });
-
     const unitLabel = mode === "acceleration" ? "m/s²" : "km/h";
     const inputStep = mode === "acceleration" ? "0.1" : "1";
     const maxLabel = this.root.querySelector<HTMLElement>("#analysis-velocity-max-label");
@@ -1288,10 +1504,8 @@ export class SidebarView {
       velocityMaxField.hidden = !velocityEnabled;
     }
 
-    const odMetricField = this.root.querySelector<HTMLElement>("#analysis-od-metric-field");
-    if (odMetricField) {
-      odMetricField.hidden = !odEnabled;
-    }
+    this.syncOdMetricSelectors("color", analysisSettings.odColorMetricKey, odEnabled);
+    this.syncOdMetricSelectors("draw-order", analysisSettings.odDrawOrderMetricKey, odEnabled);
 
     const maxInput = this.root.querySelector<HTMLInputElement>('input[data-action="analysis-velocity-max"]');
     const maxSlider = this.root.querySelector<HTMLInputElement>(
@@ -1342,10 +1556,11 @@ export class SidebarView {
     }
 
     if (odEnabled) {
-      analysisMeta.textContent =
-        analysisSettings.odMetric === "tripCount"
-          ? "Color and ranking use visible OD trip counts."
-          : "Color and ranking use visible OD weights.";
+      const colorMetric = this.getOdMetricDefinition(analysisSettings.odColorMetricKey);
+      const drawMetric = this.getOdMetricDefinition(analysisSettings.odDrawOrderMetricKey);
+      const colorLabel = colorMetric?.label ?? "Weight";
+      const drawLabel = drawMetric?.label ?? colorLabel;
+      analysisMeta.textContent = `Color/rank uses ${colorLabel}. Draw order uses ${drawLabel}.`;
       return;
     }
 
@@ -1396,5 +1611,9 @@ export class SidebarView {
     };
 
     return value.replace(/[&<>"']/g, (char) => map[char]);
+  }
+
+  private escapeAttribute(value: string): string {
+    return this.escapeHtml(value);
   }
 }

@@ -12,6 +12,14 @@
       "destination_name_column": "com_d",
       "centroid_column": "centroid_o",
       "weight_column": "poids_jour",
+      "duration_column": "duree",
+      "departure_time_column": "heure_o",
+      "categorical_metrics": [
+        { "column": "type_od", "label": "OD Type" },
+        { "column": "mode_principal", "label": "Mode" },
+        { "column": "motif_o", "label": "Origin Motif" },
+        { "column": "motif_d", "label": "Destination Motif" }
+      ],
       "edge_limit": 2500,
       "edge_sampling_mode": "top_weight",
       "exclude_self_loops": true

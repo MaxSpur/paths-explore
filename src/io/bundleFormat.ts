@@ -1,20 +1,25 @@
-import type {
-  BundleBounds,
-  BundleExtractionTrajectory,
-  BundleManifest,
-  BundleManifestCounts,
-  BundleManifestSimplification,
-  BundleOverlayFeature,
-  BundleOverlayGeometryType,
-  BundleOverlayLayer,
-  BundleOverlayLayerDescriptor,
-  BundleOverlayPointFeature,
-  BundleOverlayPolygonFeature,
-  BundleRenderTrajectory,
-  BundleScalar,
-  BundleTrajectoryKind,
-  BundleTrajectoryRef,
-  TrajectoryBundle
+import {
+  DEFAULT_OD_METRIC_DEFINITIONS,
+  type BundleBounds,
+  type BundleExtractionTrajectory,
+  type BundleManifest,
+  type BundleManifestCounts,
+  type BundleOdMetricCatalog,
+  type BundleOdMetricDefinition,
+  type BundleOdMetricFamily,
+  type BundleOdMetricVariant,
+  type BundleManifestSimplification,
+  type BundleOverlayFeature,
+  type BundleOverlayGeometryType,
+  type BundleOverlayLayer,
+  type BundleOverlayLayerDescriptor,
+  type BundleOverlayPointFeature,
+  type BundleOverlayPolygonFeature,
+  type BundleRenderTrajectory,
+  type BundleScalar,
+  type BundleTrajectoryKind,
+  type BundleTrajectoryRef,
+  type TrajectoryBundle
 } from "../model/bundles";
 import type { TrackPoint } from "../model/types";
 import { decodeZipEntryText, parseZipCentralDirectory, readFileAsArrayBuffer } from "./zip";
@@ -83,6 +88,22 @@ function normalizeProperties(input: unknown): Record<string, BundleScalar> | und
   return Object.keys(output).length > 0 ? output : undefined;
 }
 
+function normalizeMetricValues(input: unknown): Record<string, number> | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return undefined;
+  }
+
+  const output: Record<string, number> = {};
+  for (const [key, value] of Object.entries(input)) {
+    const normalized = asFiniteNumber(value);
+    if (normalized !== null && normalized >= 0) {
+      output[key] = normalized;
+    }
+  }
+
+  return Object.keys(output).length > 0 ? output : undefined;
+}
+
 function normalizeBounds(input: unknown): BundleBounds | undefined {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     return undefined;
@@ -130,7 +151,8 @@ function normalizeTrajectoryRef(input: unknown, index: number): BundleTrajectory
     pointCount: asNonNegativeInteger(candidate.pointCount) ?? 0,
     simplifiedPointCount: asNonNegativeInteger(candidate.simplifiedPointCount) ?? 0,
     bounds: normalizeBounds(candidate.bounds),
-    properties: normalizeProperties(candidate.properties)
+    properties: normalizeProperties(candidate.properties),
+    metricValues: normalizeMetricValues(candidate.metricValues)
   };
 }
 
@@ -165,6 +187,67 @@ function normalizeSimplification(input: unknown): BundleManifestSimplification |
   return {
     algorithm: "rdp",
     toleranceMeters
+  };
+}
+
+function normalizeOdMetricDefinition(
+  input: unknown,
+  index: number
+): BundleOdMetricDefinition {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error(`Invalid OD metric definition at index ${index}.`);
+  }
+
+  const candidate = input as Record<string, unknown>;
+  const key = typeof candidate.key === "string" && candidate.key ? candidate.key : "";
+  const label = typeof candidate.label === "string" && candidate.label ? candidate.label : "";
+  const sourceKey =
+    typeof candidate.sourceKey === "string" && candidate.sourceKey ? candidate.sourceKey : "";
+  const sourceLabel =
+    typeof candidate.sourceLabel === "string" && candidate.sourceLabel ? candidate.sourceLabel : "";
+  const family =
+    candidate.family === "numeric" || candidate.family === "category" || candidate.family === "time"
+      ? (candidate.family as BundleOdMetricFamily)
+      : undefined;
+
+  if (!key || !label || !sourceKey || !sourceLabel || !family) {
+    throw new Error(`OD metric definition ${index} is missing required fields.`);
+  }
+
+  const variant =
+    candidate.variant === "share" || candidate.variant === "subtotal"
+      ? (candidate.variant as BundleOdMetricVariant)
+      : undefined;
+
+  return {
+    key,
+    label,
+    family,
+    sourceKey,
+    sourceLabel,
+    variant,
+    valueKey:
+      typeof candidate.valueKey === "string" && candidate.valueKey ? candidate.valueKey : undefined,
+    valueLabel:
+      typeof candidate.valueLabel === "string" && candidate.valueLabel ? candidate.valueLabel : undefined,
+    unitLabel:
+      typeof candidate.unitLabel === "string" && candidate.unitLabel ? candidate.unitLabel : undefined,
+    order: asNonNegativeInteger(candidate.order) ?? undefined
+  };
+}
+
+function normalizeOdMetricCatalog(input: unknown): BundleOdMetricCatalog | undefined {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    return undefined;
+  }
+
+  const candidate = input as Record<string, unknown>;
+  if (!Array.isArray(candidate.metrics)) {
+    return undefined;
+  }
+
+  return {
+    metrics: candidate.metrics.map(normalizeOdMetricDefinition)
   };
 }
 
@@ -441,6 +524,7 @@ function normalizeManifest(input: unknown): BundleManifest {
     bounds: normalizeBounds(candidate.bounds),
     counts: normalizeManifestCounts(candidate.counts),
     simplification: normalizeSimplification(candidate.simplification),
+    odMetrics: normalizeOdMetricCatalog(candidate.odMetrics),
     trajectories: Array.isArray(candidate.trajectories)
       ? candidate.trajectories.map(normalizeTrajectoryRef)
       : [],
@@ -593,6 +677,12 @@ export async function parseBundleArrayBuffer(
   const resolvedTrajectoryKind = hasExplicitTrajectoryKind
     ? manifest.trajectoryKind
     : inferTrajectoryKind(manifest, renderTrajectories, extractionTrajectories);
+  const resolvedOdMetrics =
+    manifest.odMetrics?.metrics && manifest.odMetrics.metrics.length > 0
+      ? manifest.odMetrics
+      : resolvedTrajectoryKind === "od-edge"
+        ? { metrics: DEFAULT_OD_METRIC_DEFINITIONS.map((definition) => ({ ...definition })) }
+        : undefined;
 
   return {
     id: manifest.id,
@@ -600,6 +690,7 @@ export async function parseBundleArrayBuffer(
     manifest: {
       ...manifest,
       trajectoryKind: resolvedTrajectoryKind,
+      odMetrics: resolvedOdMetrics,
       counts: {
         trajectoryCount: manifest.counts.trajectoryCount || manifest.trajectories.length,
         overlayLayerCount: manifest.counts.overlayLayerCount || overlays.length,

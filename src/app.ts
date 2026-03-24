@@ -4,7 +4,12 @@ import { serializeTrack } from "./io/serializers";
 import { MapView, type UndoNavigationMode } from "./map/mapView";
 import { computeVelocityScaleInfo } from "./map/velocity";
 import { COLORMAPS, DEFAULT_COLORMAP_ID, getColormapById } from "./colormaps";
-import { BundleStore, extractBundleTrajectoryAsTrack, isOdEdgeBundle } from "./model/bundles";
+import {
+  BundleStore,
+  extractBundleTrajectoryAsTrack,
+  getAvailableOdMetricCatalog,
+  isOdEdgeBundle
+} from "./model/bundles";
 import { TrackStore } from "./model/store";
 import type {
   AnalysisMode,
@@ -14,7 +19,6 @@ import type {
   ImportSummary,
   MapBaseStyle,
   MapViewSettings,
-  OdMetric,
   Track,
   VelocityViewSettings
 } from "./model/types";
@@ -47,7 +51,8 @@ const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
   colormapId: DEFAULT_COLORMAP_ID,
   velocityScaleMode: "auto",
   velocityFixedMax: 60,
-  odMetric: "weight"
+  odColorMetricKey: "weight",
+  odDrawOrderMetricKey: "weight"
 };
 const DEFAULT_MAP_VIEW_SETTINGS: MapViewSettings = {
   baseStyle: "osm-standard",
@@ -72,7 +77,10 @@ function clampMapFilterPercent(value: number): number {
 }
 
 function normalizeAnalysisSettings(
-  settings: Partial<AnalysisSettings> | null | undefined
+  settings:
+    | (Partial<AnalysisSettings> & { odMetric?: string })
+    | null
+    | undefined
 ): AnalysisSettings {
   const mode: AnalysisMode =
     settings?.mode === "velocity" ||
@@ -89,14 +97,26 @@ function normalizeAnalysisSettings(
     ? clampVelocityFixedMax(rawVelocityFixedMax)
     : DEFAULT_ANALYSIS_SETTINGS.velocityFixedMax;
   const colormapId = getColormapById(String(settings?.colormapId ?? DEFAULT_COLORMAP_ID)).id;
-  const odMetric: OdMetric = settings?.odMetric === "tripCount" ? "tripCount" : "weight";
+  const legacyOdMetric =
+    settings?.odMetric === "tripCount" || settings?.odMetric === "weight"
+      ? settings.odMetric
+      : undefined;
+  const rawOdColorMetricKey =
+    typeof settings?.odColorMetricKey === "string" && settings.odColorMetricKey.length > 0
+      ? settings.odColorMetricKey
+      : legacyOdMetric ?? DEFAULT_ANALYSIS_SETTINGS.odColorMetricKey;
+  const rawOdDrawOrderMetricKey =
+    typeof settings?.odDrawOrderMetricKey === "string" && settings.odDrawOrderMetricKey.length > 0
+      ? settings.odDrawOrderMetricKey
+      : legacyOdMetric ?? DEFAULT_ANALYSIS_SETTINGS.odDrawOrderMetricKey;
 
   return {
     mode,
     colormapId,
     velocityScaleMode,
     velocityFixedMax,
-    odMetric
+    odColorMetricKey: rawOdColorMetricKey,
+    odDrawOrderMetricKey: rawOdDrawOrderMetricKey
   };
 }
 
@@ -118,7 +138,8 @@ function migrateLegacyVelocitySettings(
     colormapId: String(settings?.colormapId ?? DEFAULT_COLORMAP_ID),
     velocityScaleMode: scaleMode,
     velocityFixedMax: fixedMax,
-    odMetric: DEFAULT_ANALYSIS_SETTINGS.odMetric
+    odColorMetricKey: DEFAULT_ANALYSIS_SETTINGS.odColorMetricKey,
+    odDrawOrderMetricKey: DEFAULT_ANALYSIS_SETTINGS.odDrawOrderMetricKey
   });
 }
 
@@ -243,7 +264,8 @@ function areAnalysisSettingsEqual(
     left.colormapId === right.colormapId &&
     left.velocityScaleMode === right.velocityScaleMode &&
     left.velocityFixedMax === right.velocityFixedMax &&
-    left.odMetric === right.odMetric
+    left.odColorMetricKey === right.odColorMetricKey &&
+    left.odDrawOrderMetricKey === right.odDrawOrderMetricKey
   );
 }
 
@@ -472,6 +494,37 @@ export function createApp(root: HTMLElement): void {
     }
   };
 
+  const resolveAnalysisSettingsForBundles = (
+    settings: AnalysisSettings,
+    bundleState: ReturnType<BundleStore["getState"]>
+  ): AnalysisSettings => {
+    const catalog = getAvailableOdMetricCatalog(bundleState.bundles);
+    const availableKeys = new Set(catalog.map((definition) => definition.key));
+    const fallbackKey =
+      catalog.find((definition) => definition.key === "weight")?.key ??
+      catalog[0]?.key ??
+      DEFAULT_ANALYSIS_SETTINGS.odColorMetricKey;
+    const odColorMetricKey = availableKeys.has(settings.odColorMetricKey)
+      ? settings.odColorMetricKey
+      : fallbackKey;
+    const odDrawOrderMetricKey = availableKeys.has(settings.odDrawOrderMetricKey)
+      ? settings.odDrawOrderMetricKey
+      : odColorMetricKey;
+
+    if (
+      odColorMetricKey === settings.odColorMetricKey &&
+      odDrawOrderMetricKey === settings.odDrawOrderMetricKey
+    ) {
+      return settings;
+    }
+
+    return {
+      ...settings,
+      odColorMetricKey,
+      odDrawOrderMetricKey
+    };
+  };
+
   const extractOdEdgeAsTrack = (target: SelectedOdEdge | undefined): void => {
     if (!target) {
       return;
@@ -518,7 +571,8 @@ export function createApp(root: HTMLElement): void {
   const render = (options: RenderOptions = {}): void => {
     const state = store.getState();
     const bundleState = bundleStore.getState();
-    const velocitySettings = deriveVelocityViewSettings(analysisSettings);
+    const effectiveAnalysisSettings = resolveAnalysisSettingsForBundles(analysisSettings, bundleState);
+    const velocitySettings = deriveVelocityViewSettings(effectiveAnalysisSettings);
     const velocityScaleTracks =
       velocitySettings.scaleMode === "auto"
         ? state.tracks.filter((track) => track.visible)
@@ -531,7 +585,7 @@ export function createApp(root: HTMLElement): void {
       latestSummary,
       activeImportStatusMessage,
       editMode,
-      analysisSettings,
+      effectiveAnalysisSettings,
       velocityScaleInfo.maxDisplayValue,
       mapViewSettings
     );
@@ -540,7 +594,7 @@ export function createApp(root: HTMLElement): void {
       editingTrackId: state.editingTrackId,
       selectedPointIds: state.selectedPointIds,
       editMode,
-      analysisSettings,
+      analysisSettings: effectiveAnalysisSettings,
       selectedOdEdge,
       velocitySettings,
       bundles: bundleState.bundles,
@@ -763,10 +817,17 @@ export function createApp(root: HTMLElement): void {
       });
       render();
     },
-    onAnalysisOdMetricChange: (odMetric) => {
+    onAnalysisOdColorMetricKeyChange: (odColorMetricKey) => {
       setAnalysisSettings({
         ...analysisSettings,
-        odMetric
+        odColorMetricKey
+      });
+      render();
+    },
+    onAnalysisOdDrawOrderMetricKeyChange: (odDrawOrderMetricKey) => {
+      setAnalysisSettings({
+        ...analysisSettings,
+        odDrawOrderMetricKey
       });
       render();
     },

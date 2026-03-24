@@ -4,6 +4,7 @@ export type VelocityScaleMode = "auto" | "fixed";
 export type SegmentColorMetric = "velocity" | "acceleration";
 export type AnalysisMode = "off" | SegmentColorMetric | "od";
 export type OdMetric = "weight" | "tripCount";
+export type OdMetricKey = string;
 export type MapBaseStyle =
   | "osm-standard"
   | "carto-light"
@@ -25,7 +26,8 @@ export interface AnalysisSettings {
   colormapId: string;
   velocityScaleMode: VelocityScaleMode;
   velocityFixedMax: number;
-  odMetric: OdMetric;
+  odColorMetricKey: OdMetricKey;
+  odDrawOrderMetricKey: OdMetricKey;
 }
 
 export interface MapViewSettings {

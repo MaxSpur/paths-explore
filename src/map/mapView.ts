@@ -1,6 +1,13 @@
 import L from "leaflet";
 import { getColormapById, sampleColormapColor } from "../colormaps";
-import { getOdEdgeMetricValue, isOdEdgeBundle, type LoadedTrajectoryBundle } from "../model/bundles";
+import {
+  findOdMetricDefinition,
+  getAvailableOdMetricCatalog,
+  getOdEdgeMetricValue,
+  isOdEdgeBundle,
+  type BundleOdMetricDefinition,
+  type LoadedTrajectoryBundle
+} from "../model/bundles";
 import {
   computeTrackSegmentAccelerations,
   computeTrackSegmentVelocities,
@@ -14,7 +21,6 @@ import type {
   EditInteractionMode,
   MapBaseStyle,
   MapViewSettings,
-  OdMetric,
   PointCoordinateUpdate,
   SegmentColorMetric,
   Track,
@@ -108,6 +114,10 @@ interface RankedOdEdge {
   trajectoryName: string;
   weight: number;
   tripCount: number;
+  durationMean?: number;
+  metricValue: number;
+  metricValues: Record<string, number>;
+  properties?: Record<string, string | number | boolean | null>;
   latLngs: [L.LatLngTuple, L.LatLngTuple];
 }
 
@@ -382,7 +392,8 @@ export class MapView {
     this.bundleCanvasLayer.setAnalysisContext({
       mode: analysisSettings?.mode ?? "off",
       colormapColors: activeColormap?.colors ?? [],
-      odMetric: analysisSettings?.odMetric ?? "weight",
+      odColorMetricKey: analysisSettings?.odColorMetricKey ?? "weight",
+      odDrawOrderMetricKey: analysisSettings?.odDrawOrderMetricKey ?? "weight",
       selectedOdEdge: options.selectedOdEdge
     });
 
@@ -543,7 +554,7 @@ export class MapView {
 
     this.setRankedMetricSegments(rankedSegments);
     this.setRankedOdEdges(
-      this.collectRankedOdEdges(analysisSettings?.odMetric ?? "weight"),
+      this.collectRankedOdEdges(analysisSettings?.odColorMetricKey ?? "weight"),
       options.selectedOdEdge
     );
     this.updateAnalysisLegend(
@@ -552,7 +563,8 @@ export class MapView {
         colormapId: "",
         velocityScaleMode: "auto",
         velocityFixedMax: 0,
-        odMetric: "weight"
+        odColorMetricKey: "weight",
+        odDrawOrderMetricKey: "weight"
       },
       velocitySettings,
       colormap,
@@ -1101,20 +1113,14 @@ export class MapView {
       this.rankedOdCursor = -1;
     }
 
-    const metric = analysisSettings.odMetric;
-    const metricLabel = metric === "tripCount" ? "OD Trip Count" : "OD Weight";
-    const unitLabel = metric === "tripCount" ? "trips" : "weight";
-    const scaleMax = activeEdges.reduce(
-      (maxValue, edge) => Math.max(maxValue, metric === "tripCount" ? edge.tripCount : edge.weight),
-      0
-    );
+    const metricKey = analysisSettings.odColorMetricKey;
+    const metricDefinition = this.getOdMetricDefinition(metricKey);
+    const drawOrderDefinition = this.getOdMetricDefinition(analysisSettings.odDrawOrderMetricKey);
+    const metricLabel = metricDefinition?.label ?? this.getOdMetricLabel(metricKey);
+    const scaleMax = activeEdges.reduce((maxValue, edge) => Math.max(maxValue, edge.metricValue), 0);
     const histogramMarkup = this.buildLegendHistogramMarkup(
       colormap.colors,
-      scaleMax > 0
-        ? activeEdges.map((edge) =>
-            (metric === "tripCount" ? edge.tripCount : edge.weight) / scaleMax
-          )
-        : []
+      scaleMax > 0 ? activeEdges.map((edge) => edge.metricValue / scaleMax) : []
     );
     const axisModeControlMarkup = this.buildLegendAxisModeControlMarkup();
     const gradient = this.buildLegendGradient(colormap.colors);
@@ -1131,26 +1137,43 @@ export class MapView {
     `
       : "";
     const selectedEdge = this.getCurrentRankedOdEdge();
-    const secondaryMetric: OdMetric = metric === "tripCount" ? "weight" : "tripCount";
     const currentRank = this.rankedOdCursor >= 0 ? this.rankedOdCursor + 1 : 0;
     const totalRanks = activeEdges.length;
     const selectedName = selectedEdge ? this.escapeHtml(selectedEdge.trajectoryName) : "No OD flow selected.";
     const primaryValue = selectedEdge
-      ? `${this.getOdMetricLabel(metric)}: <strong>${this.formatOdMetricValue(
-          metric === "tripCount" ? selectedEdge.tripCount : selectedEdge.weight,
-          metric
+      ? `${metricLabel}: <strong>${this.formatOdMetricValue(
+          selectedEdge.metricValue,
+          metricDefinition
         )}</strong>`
-      : `${this.getOdMetricLabel(metric)}: <strong>n/a</strong>`;
-    const secondaryValue = selectedEdge
-      ? `${this.getOdMetricLabel(secondaryMetric)}: ${this.formatOdMetricValue(
-          secondaryMetric === "tripCount" ? selectedEdge.tripCount : selectedEdge.weight,
-          secondaryMetric
-        )}`
-      : `${this.getOdMetricLabel(secondaryMetric)}: n/a`;
+      : `${metricLabel}: <strong>n/a</strong>`;
+    const weightDefinition = this.getOdMetricDefinition("weight");
+    const tripCountDefinition = this.getOdMetricDefinition("tripCount");
+    const durationDefinition = this.getOdMetricDefinition("durationMean");
+    const weightValue = selectedEdge
+      ? `Weight: ${this.formatOdMetricValue(selectedEdge.weight, weightDefinition)}`
+      : "Weight: n/a";
+    const tripCountValue = selectedEdge
+      ? `Trip Count: ${this.formatOdMetricValue(selectedEdge.tripCount, tripCountDefinition)}`
+      : "Trip Count: n/a";
+    const durationValue =
+      selectedEdge && typeof selectedEdge.durationMean === "number"
+        ? `Mean Duration: ${this.formatOdMetricValue(selectedEdge.durationMean, durationDefinition)}${durationDefinition?.unitLabel ? ` ${durationDefinition.unitLabel}` : ""}`
+        : "Mean Duration: n/a";
+    const dominantSummaries = selectedEdge
+      ? [
+          this.getDominantOdMetricSummary(selectedEdge, "type_od"),
+          this.getDominantOdMetricSummary(selectedEdge, "mode_principal"),
+          this.getDominantOdMetricSummary(selectedEdge, "motif_o"),
+          this.getDominantOdMetricSummary(selectedEdge, "motif_d")
+        ].filter((value): value is string => Boolean(value))
+      : [];
     const availability =
       scaleMax <= 0
         ? "No visible OD flows with usable metrics."
-        : `Current max: ${this.formatOdMetricValue(scaleMax, metric)}`;
+        : `Current max: ${this.formatOdMetricValue(scaleMax, metricDefinition)}`;
+    const drawOrderNote = drawOrderDefinition
+      ? `Draw on top by: ${drawOrderDefinition.label}.`
+      : "Draw on top by current OD metric.";
 
     this.velocityLegendElement.classList.remove("is-hidden");
     this.velocityLegendElement.innerHTML = `
@@ -1170,13 +1193,19 @@ export class MapView {
       ></button>
       <div class="velocity-legend-scale"><span>0</span><span>${this.formatOdMetricValue(
         scaleMax,
-        metric
+        metricDefinition
       )}</span></div>
       <div class="velocity-legend-note">Auto scale across visible OD flows.</div>
+      <div class="velocity-legend-note">${drawOrderNote}</div>
       <div class="velocity-legend-note">${availability}</div>
       <div class="velocity-legend-note"><strong>${selectedName}</strong></div>
       <div class="velocity-legend-note">${primaryValue}</div>
-      <div class="velocity-legend-note">${secondaryValue}</div>
+      <div class="velocity-legend-note">${weightValue}</div>
+      <div class="velocity-legend-note">${tripCountValue}</div>
+      <div class="velocity-legend-note">${durationValue}</div>
+      ${dominantSummaries
+        .map((summary) => `<div class="velocity-legend-note">${this.escapeHtml(summary)}</div>`)
+        .join("")}
       <div class="velocity-legend-actions">
         <span class="velocity-legend-cycle-controls">
           <button
@@ -1459,7 +1488,15 @@ export class MapView {
     this.updateLegendCycleStatus();
   }
 
-  private collectRankedOdEdges(metric: OdMetric): RankedOdEdge[] {
+  private getOdMetricCatalog(): BundleOdMetricDefinition[] {
+    return getAvailableOdMetricCatalog(this.latestBundles);
+  }
+
+  private getOdMetricDefinition(metricKey: string): BundleOdMetricDefinition | undefined {
+    return findOdMetricDefinition(this.latestBundles, metricKey);
+  }
+
+  private collectRankedOdEdges(metricKey: string): RankedOdEdge[] {
     const rankedEdges: RankedOdEdge[] = [];
 
     for (const bundle of this.latestBundles) {
@@ -1474,7 +1511,7 @@ export class MapView {
 
         const weight = getOdEdgeMetricValue(bundle.bundle, trajectory.id, "weight") ?? 0;
         const tripCount = getOdEdgeMetricValue(bundle.bundle, trajectory.id, "tripCount") ?? 0;
-        const metricValue = metric === "tripCount" ? tripCount : weight;
+        const metricValue = getOdEdgeMetricValue(bundle.bundle, trajectory.id, metricKey) ?? 0;
         if (!(metricValue > 0)) {
           continue;
         }
@@ -1487,6 +1524,14 @@ export class MapView {
           trajectoryName: reference?.name ?? trajectory.id,
           weight,
           tripCount,
+          durationMean: getOdEdgeMetricValue(bundle.bundle, trajectory.id, "durationMean"),
+          metricValue,
+          metricValues: {
+            weight,
+            tripCount,
+            ...(reference?.metricValues ?? {})
+          },
+          properties: reference?.properties,
           latLngs: [
             trajectory.path[0],
             trajectory.path[trajectory.path.length - 1]
@@ -1496,10 +1541,8 @@ export class MapView {
     }
 
     return rankedEdges.sort((left, right) => {
-      const leftValue = metric === "tripCount" ? left.tripCount : left.weight;
-      const rightValue = metric === "tripCount" ? right.tripCount : right.weight;
-      if (rightValue !== leftValue) {
-        return rightValue - leftValue;
+      if (right.metricValue !== left.metricValue) {
+        return right.metricValue - left.metricValue;
       }
 
       return this.getRankedOdEdgeKey(left).localeCompare(this.getRankedOdEdgeKey(right));
@@ -1850,23 +1893,75 @@ export class MapView {
     });
   }
 
-  private getOdMetricLabel(metric: OdMetric): string {
-    return metric === "tripCount" ? "Trip Count" : "Weight";
+  private getOdMetricLabel(metricKey: string): string {
+    return this.getOdMetricDefinition(metricKey)?.label ?? metricKey;
   }
 
-  private formatOdMetricValue(value: number, metric: OdMetric): string {
+  private formatOdMetricValue(
+    value: number,
+    definition: BundleOdMetricDefinition | undefined
+  ): string {
     if (!Number.isFinite(value)) {
       return "0";
     }
 
-    if (metric === "tripCount") {
+    if (definition?.unitLabel === "%") {
+      return `${(value * 100).toLocaleString(undefined, {
+        minimumFractionDigits: value < 0.1 ? 1 : 0,
+        maximumFractionDigits: 1
+      })}%`;
+    }
+
+    if (definition?.key === "tripCount" || definition?.sourceKey === "tripCount") {
       return Math.round(value).toLocaleString();
+    }
+
+    if (definition?.unitLabel === "min") {
+      return value.toLocaleString(undefined, {
+        minimumFractionDigits: value < 100 ? 1 : 0,
+        maximumFractionDigits: 1
+      });
     }
 
     return value.toLocaleString(undefined, {
       minimumFractionDigits: value < 100 ? 1 : 0,
       maximumFractionDigits: 1
     });
+  }
+
+  private getDominantOdMetricSummary(edge: RankedOdEdge, sourceKey: string): string | undefined {
+    const candidates = this.getOdMetricCatalog().filter(
+      (definition) =>
+        definition.sourceKey === sourceKey &&
+        definition.variant === "share" &&
+        definition.valueKey
+    );
+    if (candidates.length === 0) {
+      return undefined;
+    }
+
+    let bestDefinition: BundleOdMetricDefinition | undefined;
+    let bestValue = -1;
+    for (const candidate of candidates) {
+      const value = edge.metricValues[candidate.key];
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        continue;
+      }
+
+      if (value > bestValue) {
+        bestValue = value;
+        bestDefinition = candidate;
+      }
+    }
+
+    if (!bestDefinition || bestValue < 0) {
+      return undefined;
+    }
+
+    return `${bestDefinition.sourceLabel}: ${bestDefinition.valueLabel ?? bestDefinition.label} (${this.formatOdMetricValue(
+      bestValue,
+      bestDefinition
+    )})`;
   }
 
   private onPopupClose = (event: L.PopupEvent): void => {

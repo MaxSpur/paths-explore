@@ -31,7 +31,8 @@ function createSidebar(): SidebarView {
     onAnalysisVelocityScaleModeChange: vi.fn(),
     onAnalysisVelocityFixedMaxChange: vi.fn(),
     onAnalysisColormapChange: vi.fn(),
-    onAnalysisOdMetricChange: vi.fn(),
+    onAnalysisOdColorMetricKeyChange: vi.fn(),
+    onAnalysisOdDrawOrderMetricKeyChange: vi.fn(),
     onMapBaseStyleChange: vi.fn(),
     onMapDarkenChange: vi.fn(),
     onMapDesaturateChange: vi.fn()
@@ -74,7 +75,8 @@ describe("sidebar analysis integration", () => {
         colormapId: DEFAULT_COLORMAP_ID,
         velocityScaleMode: "auto",
         velocityFixedMax: 60,
-        odMetric: "weight"
+        odColorMetricKey: "weight",
+        odDrawOrderMetricKey: "weight"
       },
       25,
       {

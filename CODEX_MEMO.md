@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Implement the OD analysis mode and clean up bundle interaction semantics on top of the existing bundle pipeline.
+Implement richer OD metric sources and OD render ordering on top of the existing OD analysis mode.
 
 ## CURRENT_SUBTASK
-OD analysis mode is implemented: bundles can now declare `trajectoryKind`, legacy OD bundles are inferred at load time, the bottom-right legend is shared across velocity/acceleration/OD, and OD edges are selected/highlighted on click with explicit panel-based extraction.
+Rich OD metric catalogs are now wired end-to-end: the converter emits numeric/category/time metrics, the sidebar exposes separate `Color / Rank by` and `Draw on top by` selectors, and OD edges draw in one globally sorted pass so heavy flows stay visible.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -101,6 +101,9 @@ OD analysis mode is implemented: bundles can now declare `trajectoryKind`, legac
   - After `Next Peak`, focus is moved from legend controls back to map container to avoid keyboard actions being consumed by focused UI buttons.
   - Map legend includes a colorful, colormap-aligned histogram above the scale with click-cycle modes: `standard` (coarser bins), `precision` (many thin bins, no gaps), `hidden`.
   - OD mode reuses the same legend shell for `Top Flow`, `Next Flow`, selected edge details, and `Extract Selected`.
+  - OD mode now separates `Color / Rank by` from `Draw on top by`.
+  - OD bundles can expose a manifest-level `odMetrics` catalog plus per-edge `metricValues`.
+  - OD legend/histogram/ranking follow the selected color metric; draw order is independent and only affects render stacking.
   - Legend histogram includes a compact single-row axis-mode toggle (`L/L`, `L/G`, `G/L`, `G/G`) for linear/log scaling on X and Y independently.
   - Axis-mode toggle is hidden when histogram mode is `hidden` to reduce legend clutter.
   - X-axis log mode redistributes bins with a log transform while preserving colormap meaning via inverse sampling; Y-axis log mode scales bar heights with log(count).
@@ -231,11 +234,17 @@ OD analysis mode is implemented: bundles can now declare `trajectoryKind`, legac
   - add a new converter input kind, `weighted_od_graph`, instead of building a separate runtime path
   - use the parquet as the source of truth and derive the centroid lookup internally from `code_insee_o -> centroid_o`
   - default EMG sample config limits to the top 2,500 non-self-loop edges by aggregated `poids_jour`
+  - richer OD metric catalog now includes:
+    - numeric: `weight`, `tripCount`, `durationMean`
+    - categorical families from `type_od`, `mode_principal`, `motif_o`, `motif_d`
+    - time family from hourly `heure_o` bins
+    - both `share` and `subtotal` variants for categorical/time values
+  - current EMG sample bundle emits 127 OD metric definitions across those families
 
 ## NEXT_STEPS
-- User-side manual preview: reload the app, switch to `OD` mode, and confirm `Top Flow` / `Next Flow`, click selection, histogram recoloring, and explicit `Extract Selected` all behave as expected.
+- User-side manual preview: reload the app, switch to `OD`, and confirm separate color-vs-draw selectors produce useful visibility at several zoom levels.
+- Optional follow-up: add nonlinear OD normalization controls (for example percentile or log scaling) if weight dominance still compresses the visible color range too much.
 - Optional follow-up: expose a second OD config preset for more aggressive decimation vs strongest-edge selection.
-- Optional follow-up: if a true deduplicated commune lookup is provided later, allow `weighted_od_graph` to consume that lookup directly instead of deriving it from the trip table.
 
 ## GIT_UI_PUSH_SETUP
 - Goal: make Codex UI `Push` work via plain `git push` without manual remote args.

@@ -1,8 +1,10 @@
 import { getTrackColor } from "./colors";
-import type { OdMetric, Track, TrackPoint } from "./types";
+import type { OdMetricKey, Track, TrackPoint } from "./types";
 
 export type BundleScalar = string | number | boolean | null;
 export type BundleTrajectoryKind = "path" | "od-edge";
+export type BundleOdMetricFamily = "numeric" | "category" | "time";
+export type BundleOdMetricVariant = "share" | "subtotal";
 
 export interface BundleBounds {
   minLat: number;
@@ -18,6 +20,7 @@ export interface BundleTrajectoryRef {
   simplifiedPointCount: number;
   bounds?: BundleBounds;
   properties?: Record<string, BundleScalar>;
+  metricValues?: Record<string, number>;
 }
 
 export interface BundleRenderTrajectory {
@@ -73,6 +76,23 @@ export interface BundleManifestSimplification {
   toleranceMeters: number;
 }
 
+export interface BundleOdMetricDefinition {
+  key: string;
+  label: string;
+  family: BundleOdMetricFamily;
+  sourceKey: string;
+  sourceLabel: string;
+  variant?: BundleOdMetricVariant;
+  valueKey?: string;
+  valueLabel?: string;
+  unitLabel?: string;
+  order?: number;
+}
+
+export interface BundleOdMetricCatalog {
+  metrics: BundleOdMetricDefinition[];
+}
+
 export interface BundleManifest {
   version: number;
   id: string;
@@ -82,6 +102,7 @@ export interface BundleManifest {
   bounds?: BundleBounds;
   counts: BundleManifestCounts;
   simplification?: BundleManifestSimplification;
+  odMetrics?: BundleOdMetricCatalog;
   trajectories: BundleTrajectoryRef[];
   overlays: BundleOverlayLayerDescriptor[];
   renderFile: string;
@@ -132,8 +153,54 @@ function isFiniteBoundsValue(value: number): boolean {
   return Number.isFinite(value);
 }
 
-function asFinitePositiveNumber(value: BundleScalar | undefined): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+function asFiniteNonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+export const DEFAULT_OD_METRIC_DEFINITIONS: BundleOdMetricDefinition[] = [
+  {
+    key: "weight",
+    label: "Weight",
+    family: "numeric",
+    sourceKey: "weight",
+    sourceLabel: "Weight",
+    unitLabel: "weight",
+    order: 0
+  },
+  {
+    key: "tripCount",
+    label: "Trip Count",
+    family: "numeric",
+    sourceKey: "tripCount",
+    sourceLabel: "Trip Count",
+    unitLabel: "trips",
+    order: 1
+  }
+];
+
+function compareOdMetricDefinitions(
+  left: BundleOdMetricDefinition,
+  right: BundleOdMetricDefinition
+): number {
+  const leftOrder = typeof left.order === "number" ? left.order : Number.POSITIVE_INFINITY;
+  const rightOrder = typeof right.order === "number" ? right.order : Number.POSITIVE_INFINITY;
+  if (leftOrder !== rightOrder) {
+    return leftOrder - rightOrder;
+  }
+
+  if (left.sourceLabel !== right.sourceLabel) {
+    return left.sourceLabel.localeCompare(right.sourceLabel);
+  }
+
+  if ((left.variant ?? "") !== (right.variant ?? "")) {
+    return (left.variant ?? "").localeCompare(right.variant ?? "");
+  }
+
+  if ((left.valueLabel ?? "") !== (right.valueLabel ?? "")) {
+    return (left.valueLabel ?? "").localeCompare(right.valueLabel ?? "");
+  }
+
+  return left.label.localeCompare(right.label);
 }
 
 export function isBundleBoundsValid(bounds: BundleBounds | undefined): bounds is BundleBounds {
@@ -238,14 +305,67 @@ export function isOdEdgeBundle(bundle: TrajectoryBundle | LoadedTrajectoryBundle
   return getBundleTrajectoryKind(rawBundle) === "od-edge";
 }
 
+export function getBundleOdMetricCatalog(
+  bundle: TrajectoryBundle | LoadedTrajectoryBundle
+): BundleOdMetricDefinition[] {
+  const rawBundle = "bundle" in bundle ? bundle.bundle : bundle;
+  if (!isOdEdgeBundle(rawBundle)) {
+    return [];
+  }
+
+  const configured = rawBundle.manifest.odMetrics?.metrics;
+  if (!configured || configured.length === 0) {
+    return DEFAULT_OD_METRIC_DEFINITIONS.map((definition) => ({ ...definition }));
+  }
+
+  return [...configured]
+    .map((definition) => ({ ...definition }))
+    .sort(compareOdMetricDefinitions);
+}
+
+export function getAvailableOdMetricCatalog(
+  bundles: Array<TrajectoryBundle | LoadedTrajectoryBundle>
+): BundleOdMetricDefinition[] {
+  const definitionsByKey = new Map<string, BundleOdMetricDefinition>();
+
+  for (const bundle of bundles) {
+    for (const definition of getBundleOdMetricCatalog(bundle)) {
+      if (!definitionsByKey.has(definition.key)) {
+        definitionsByKey.set(definition.key, { ...definition });
+      }
+    }
+  }
+
+  if (definitionsByKey.size === 0) {
+    return DEFAULT_OD_METRIC_DEFINITIONS.map((definition) => ({ ...definition }));
+  }
+
+  return Array.from(definitionsByKey.values()).sort(compareOdMetricDefinitions);
+}
+
+export function findOdMetricDefinition(
+  bundles: Array<TrajectoryBundle | LoadedTrajectoryBundle>,
+  metricKey: string
+): BundleOdMetricDefinition | undefined {
+  return getAvailableOdMetricCatalog(bundles).find((definition) => definition.key === metricKey);
+}
+
 export function getOdEdgeMetricValue(
   bundle: TrajectoryBundle,
   trajectoryId: string,
-  metric: OdMetric
+  metricKey: OdMetricKey
 ): number | undefined {
   const reference = bundle.trajectoryRefById.get(trajectoryId);
-  const propertyName = metric === "tripCount" ? "tripCount" : "weight";
-  return asFinitePositiveNumber(reference?.properties?.[propertyName]);
+  const metricValue = asFiniteNonNegativeNumber(reference?.metricValues?.[metricKey]);
+  if (metricValue !== undefined) {
+    return metricValue;
+  }
+
+  if (metricKey === "weight" || metricKey === "tripCount") {
+    return asFiniteNonNegativeNumber(reference?.properties?.[metricKey]);
+  }
+
+  return undefined;
 }
 
 export function extractBundleTrajectoryAsTrack(

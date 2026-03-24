@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 try:
     import pyarrow.parquet as pq
@@ -342,6 +343,82 @@ def decode_point_geometry(value: Any, field_name: str) -> tuple[float, float] | 
     return geometry["coordinates"]
 
 
+def encode_metric_key(*parts: str) -> str:
+    return "|".join(quote(part, safe="") for part in parts)
+
+
+def normalize_config_label(value: Any, fallback: str) -> str:
+    if value in (None, ""):
+        return fallback
+    return str(value)
+
+
+def parse_time_of_day_minutes(value: Any) -> int | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, time):
+        return value.hour * 60 + value.minute
+    if isinstance(value, datetime):
+        return value.hour * 60 + value.minute
+    if hasattr(value, "as_py"):
+        return parse_time_of_day_minutes(value.as_py())
+
+    raw = str(value).strip()
+    parts = raw.split(":")
+    if len(parts) < 2:
+        return None
+
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        return None
+
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        return None
+
+    return hour * 60 + minute
+
+
+def format_time_bin_label(start_minute: int, bin_minutes: int) -> str:
+    end_minute = (start_minute + bin_minutes) % (24 * 60)
+
+    def format_minute(total_minutes: int) -> str:
+        hours = (total_minutes // 60) % 24
+        minutes = total_minutes % 60
+        return f"{hours:02d}:{minutes:02d}"
+
+    return f"{format_minute(start_minute)}-{format_minute(end_minute)}"
+
+
+def normalize_categorical_metric_configs(input_config: dict[str, Any]) -> list[dict[str, str]]:
+    raw_metrics = input_config.get("categorical_metrics", [])
+    if raw_metrics in (None, []):
+        return []
+    if not isinstance(raw_metrics, list):
+        raise ValueError("`categorical_metrics` must be an array of objects.")
+
+    normalized: list[dict[str, str]] = []
+    for index, metric in enumerate(raw_metrics):
+        if not isinstance(metric, dict):
+            raise ValueError(f"`categorical_metrics[{index}]` must be an object.")
+
+        raw_column = metric.get("column")
+        if raw_column in (None, ""):
+            raise ValueError(f"`categorical_metrics[{index}].column` is required.")
+
+        column = str(raw_column)
+        normalized.append(
+            {
+                "column": column,
+                "sourceKey": column,
+                "label": normalize_config_label(metric.get("label"), column),
+            }
+        )
+
+    return normalized
+
+
 def build_trajectory_input(
     input_config: dict[str, Any],
     simplification_tolerance_meters: float,
@@ -469,7 +546,13 @@ def build_trajectory_input(
 
 def build_weighted_od_input(
     input_config: dict[str, Any],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], Bounds | None]:
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    Bounds | None,
+    dict[str, Any] | None,
+]:
     path = Path(str(input_config["path"]))
     origin_code_column = str(input_config["origin_code_column"])
     destination_code_column = str(input_config["destination_code_column"])
@@ -477,6 +560,13 @@ def build_weighted_od_input(
     origin_name_column = input_config.get("origin_name_column")
     destination_name_column = input_config.get("destination_name_column")
     weight_column = input_config.get("weight_column")
+    duration_column = input_config.get("duration_column")
+    departure_time_column = input_config.get("departure_time_column")
+    departure_time_bin_minutes_raw = input_config.get("departure_time_bin_minutes", 60)
+    departure_time_bin_minutes = int(departure_time_bin_minutes_raw)
+    if departure_time_bin_minutes <= 0 or departure_time_bin_minutes > 24 * 60:
+        raise ValueError("`departure_time_bin_minutes` must be between 1 and 1440.")
+    categorical_metrics = normalize_categorical_metric_configs(input_config)
     edge_limit_raw = input_config.get("edge_limit")
     edge_limit = int(edge_limit_raw) if edge_limit_raw is not None else None
     edge_sampling_mode = str(input_config.get("edge_sampling_mode", "top_weight"))
@@ -489,7 +579,14 @@ def build_weighted_od_input(
     exclude_self_loops = bool(input_config.get("exclude_self_loops", True))
 
     selected_columns = [origin_code_column, destination_code_column, centroid_column]
-    for optional_column in [origin_name_column, destination_name_column, weight_column]:
+    for optional_column in [
+        origin_name_column,
+        destination_name_column,
+        weight_column,
+        duration_column,
+        departure_time_column,
+        *(metric["column"] for metric in categorical_metrics),
+    ]:
         if optional_column and str(optional_column) not in selected_columns:
             selected_columns.append(str(optional_column))
 
@@ -561,6 +658,9 @@ def build_weighted_od_input(
                 "destinationCoordinates": destination_coordinates,
                 "weight": 0.0,
                 "tripCount": 0,
+                "durationWeightedTotal": 0.0,
+                "durationWeightDenominator": 0.0,
+                "categoricalTotals": {},
             },
         )
         if edge["originName"] == origin_code and origin_name != origin_code:
@@ -568,12 +668,59 @@ def build_weighted_od_input(
         if edge["destinationName"] == destination_code and destination_name != destination_code:
             edge["destinationName"] = destination_name
         edge["name"] = f"{edge['originName']} -> {edge['destinationName']}"
-        edge["weight"] += optional_float(
+        row_weight = optional_float(
             row.get(weight_column) if weight_column else None,
             0.0 if weight_column else 1.0,
             str(weight_column) if weight_column else "weight",
         )
+        edge["weight"] += row_weight
         edge["tripCount"] += 1
+
+        if duration_column:
+            duration_value = row.get(duration_column)
+            if duration_value not in (None, ""):
+                duration_minutes = ensure_float(duration_value, str(duration_column))
+                edge["durationWeightedTotal"] += duration_minutes * row_weight
+                edge["durationWeightDenominator"] += row_weight
+
+        for metric in categorical_metrics:
+            raw_value = row.get(metric["column"])
+            if raw_value in (None, ""):
+                continue
+
+            value_key = str(raw_value)
+            source_totals = edge["categoricalTotals"].setdefault(
+                metric["sourceKey"],
+                {
+                    "family": "category",
+                    "sourceLabel": metric["label"],
+                    "values": {},
+                },
+            )
+            value_totals = source_totals["values"].setdefault(
+                value_key,
+                {"label": value_key, "subtotal": 0.0},
+            )
+            value_totals["subtotal"] += row_weight
+
+        if departure_time_column:
+            departure_minutes = parse_time_of_day_minutes(row.get(departure_time_column))
+            if departure_minutes is not None:
+                bucket_start = (departure_minutes // departure_time_bin_minutes) * departure_time_bin_minutes
+                departure_totals = edge["categoricalTotals"].setdefault(
+                    "departureTime",
+                    {
+                        "family": "time",
+                        "sourceLabel": "Departure Time",
+                        "values": {},
+                    },
+                )
+                bucket_key = format_time_bin_label(bucket_start, departure_time_bin_minutes)
+                bucket_totals = departure_totals["values"].setdefault(
+                    bucket_key,
+                    {"label": bucket_key, "subtotal": 0.0, "order": bucket_start},
+                )
+                bucket_totals["subtotal"] += row_weight
 
     weighted_edges = list(edges_by_id.values())
     weighted_edges.sort(key=lambda edge: (-edge["weight"], edge["id"]))
@@ -587,11 +734,83 @@ def build_weighted_od_input(
     render_trajectories: list[dict[str, Any]] = []
     extraction_trajectories: list[dict[str, Any]] = []
     overall_bounds: Bounds | None = None
+    metric_catalog_entries: list[dict[str, Any]] = [
+        {
+            "key": "weight",
+            "label": "Weight",
+            "family": "numeric",
+            "sourceKey": "weight",
+            "sourceLabel": "Weight",
+            "unitLabel": "weight",
+            "order": 0,
+        },
+        {
+            "key": "tripCount",
+            "label": "Trip Count",
+            "family": "numeric",
+            "sourceKey": "tripCount",
+            "sourceLabel": "Trip Count",
+            "unitLabel": "trips",
+            "order": 1,
+        },
+    ]
+    if duration_column:
+        metric_catalog_entries.append(
+            {
+                "key": "durationMean",
+                "label": "Mean Duration",
+                "family": "numeric",
+                "sourceKey": "durationMean",
+                "sourceLabel": "Mean Duration",
+                "unitLabel": "min",
+                "order": 2,
+            }
+        )
+    metric_catalog_rollups: dict[str, dict[str, Any]] = {}
 
     for edge in selected_edges:
         path_points = [edge["originCoordinates"], edge["destinationCoordinates"]]
         bounds = bounds_from_points(path_points)
         overall_bounds = merge_bounds(overall_bounds, bounds)
+        metric_values = {
+            "weight": edge["weight"],
+            "tripCount": float(edge["tripCount"]),
+        }
+        if edge["durationWeightDenominator"] > 0:
+            metric_values["durationMean"] = (
+                edge["durationWeightedTotal"] / edge["durationWeightDenominator"]
+            )
+
+        for source_key, source_totals in edge["categoricalTotals"].items():
+            family = source_totals["family"]
+            source_label = source_totals["sourceLabel"]
+            rollup = metric_catalog_rollups.setdefault(
+                source_key,
+                {
+                    "family": family,
+                    "sourceLabel": source_label,
+                    "values": {},
+                },
+            )
+            denominator = edge["weight"] if edge["weight"] > 0 else float(edge["tripCount"])
+            for value_key, value_totals in source_totals["values"].items():
+                subtotal = value_totals["subtotal"]
+                share = (subtotal / denominator) if denominator > 0 else 0.0
+                subtotal_key = encode_metric_key(family, source_key, "subtotal", value_key)
+                share_key = encode_metric_key(family, source_key, "share", value_key)
+                metric_values[subtotal_key] = subtotal
+                metric_values[share_key] = share
+
+                rollup_value = rollup["values"].setdefault(
+                    value_key,
+                    {
+                        "label": value_totals["label"],
+                        "subtotal": 0.0,
+                        "order": value_totals.get("order"),
+                    },
+                )
+                rollup_value["subtotal"] += subtotal
+
         properties = {
             "weight": edge["weight"],
             "tripCount": edge["tripCount"],
@@ -600,6 +819,8 @@ def build_weighted_od_input(
             "destinationCode": edge["destinationCode"],
             "destinationName": edge["destinationName"],
         }
+        if "durationMean" in metric_values:
+            properties["durationMean"] = metric_values["durationMean"]
 
         manifest_refs.append(
             {
@@ -609,6 +830,7 @@ def build_weighted_od_input(
                 "simplifiedPointCount": 2,
                 **({"bounds": bounds.to_json()} if bounds else {}),
                 "properties": properties,
+                "metricValues": metric_values,
             }
         )
         render_trajectories.append(
@@ -629,7 +851,55 @@ def build_weighted_od_input(
             }
         )
 
-    return manifest_refs, render_trajectories, extraction_trajectories, overall_bounds
+    subtotal_unit_label = "weight" if weight_column else "trips"
+    source_order_base = len(metric_catalog_entries)
+
+    for source_index, (source_key, rollup) in enumerate(metric_catalog_rollups.items()):
+        values = list(rollup["values"].items())
+        if rollup["family"] == "time":
+            values.sort(key=lambda item: (item[1].get("order", 0), item[0]))
+        else:
+            values.sort(key=lambda item: (-item[1]["subtotal"], item[0]))
+
+        for value_index, (value_key, value_rollup) in enumerate(values):
+            subtotal_order = source_order_base + source_index * 10_000 + value_index * 2
+            share_order = subtotal_order + 1
+            metric_catalog_entries.append(
+                {
+                    "key": encode_metric_key(rollup["family"], source_key, "subtotal", value_key),
+                    "label": f"{rollup['sourceLabel']}: {value_rollup['label']} (Subtotal)",
+                    "family": rollup["family"],
+                    "sourceKey": source_key,
+                    "sourceLabel": rollup["sourceLabel"],
+                    "variant": "subtotal",
+                    "valueKey": value_key,
+                    "valueLabel": value_rollup["label"],
+                    "unitLabel": subtotal_unit_label,
+                    "order": subtotal_order,
+                }
+            )
+            metric_catalog_entries.append(
+                {
+                    "key": encode_metric_key(rollup["family"], source_key, "share", value_key),
+                    "label": f"{rollup['sourceLabel']}: {value_rollup['label']} (Share)",
+                    "family": rollup["family"],
+                    "sourceKey": source_key,
+                    "sourceLabel": rollup["sourceLabel"],
+                    "variant": "share",
+                    "valueKey": value_key,
+                    "valueLabel": value_rollup["label"],
+                    "unitLabel": "%",
+                    "order": share_order,
+                }
+            )
+
+    return (
+        manifest_refs,
+        render_trajectories,
+        extraction_trajectories,
+        overall_bounds,
+        {"metrics": metric_catalog_entries},
+    )
 
 
 def load_geo_metadata(path: Path) -> dict[str, Any]:
@@ -785,6 +1055,7 @@ def convert_config_to_bundle(config: dict[str, Any], output_path: Path) -> dict[
     overall_bounds: Bounds | None = None
     source_files: list[str] = []
     trajectory_kind = "path"
+    od_metric_catalog: dict[str, Any] | None = None
 
     for input_index, raw_input in enumerate(inputs):
         if not isinstance(raw_input, dict):
@@ -806,12 +1077,14 @@ def convert_config_to_bundle(config: dict[str, Any], output_path: Path) -> dict[
             continue
 
         if kind == "weighted_od_graph":
-            refs, render_payload, extraction_payload, bounds = build_weighted_od_input(raw_input)
+            refs, render_payload, extraction_payload, bounds, metrics = build_weighted_od_input(raw_input)
             manifest_refs.extend(refs)
             render_trajectories.extend(render_payload)
             extraction_trajectories.extend(extraction_payload)
             overall_bounds = merge_bounds(overall_bounds, bounds)
             trajectory_kind = "od-edge"
+            if metrics and metrics.get("metrics"):
+                od_metric_catalog = metrics
             continue
 
         if kind == "geoparquet_overlay":
@@ -841,6 +1114,7 @@ def convert_config_to_bundle(config: dict[str, Any], output_path: Path) -> dict[
             "algorithm": "rdp",
             "toleranceMeters": simplification_tolerance_meters,
         },
+        **({"odMetrics": od_metric_catalog} if od_metric_catalog else {}),
         "trajectories": manifest_refs,
         "overlays": [
             {
