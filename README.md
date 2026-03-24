@@ -108,7 +108,9 @@ The converter accepts a JSON config with explicit schema mappings.
 
 `trajectory_sampling_mode: "decimate"` is the recommended default when you want a representative sample instead of the first `N` grouped trajectories.
 
-Example config for the geometric sample parquet in `./data`:
+The repo tracks configs and tiny fixtures only. Put large local parquet or GeoJSON inputs under `./data`, and generate top-level runtime bundles under `./output`; both are git-ignored.
+
+Example configs for EMG-style parquet inputs placed locally under `./data`:
 
 - [configs/emg-centroids.bundle.json](/Users/MadMax/Developer/Websites/Path-Segments/configs/emg-centroids.bundle.json)
 - [configs/emg-overlay.bundle.json](/Users/MadMax/Developer/Websites/Path-Segments/configs/emg-overlay.bundle.json)
@@ -118,7 +120,7 @@ Example config for the geometric sample parquet in `./data`:
 
 ### 3. Generate a runtime bundle
 
-For a fast first-pass visualization of the sample data, generate the centroid-only bundle:
+For a fast first-pass visualization of a local sample parquet, generate the centroid-only bundle:
 
 ```bash
 python3 scripts/parquet_to_bundle.py \
@@ -164,12 +166,13 @@ Load the generated `.psbundle.zip` file through the normal import control or dra
 
 Notes:
 
-- The current `data/emg-base-des-deplacements.parquet` sample is directly visualizable as GeoParquet overlays.
-- The current `data/emg-base-des-deplacements.parquet` sample can also be converted into weighted centroid-to-centroid OD lines with `weighted_od_graph`.
+- `configs/emg-centroids.bundle.json`, `configs/emg-overlay.bundle.json`, and `configs/emg-weighted-od.bundle.json` expect matching local parquet inputs under `data/`; those heavier source files are intentionally not committed.
+- If you have `data/emg-base-des-deplacements.parquet` locally, it is directly visualizable as GeoParquet overlays.
+- If you have `data/emg-base-des-deplacements.parquet` locally, it can also be converted into weighted centroid-to-centroid OD lines with `weighted_od_graph`.
 - `configs/emg-weighted-od.bundle.json` now derives `duree`, hourly `heure_o` bins, `type_od`, `mode_principal`, `motif_o`, and `motif_d` so OD mode has richer ranking and draw-order choices.
 - `configs/emg-centroids.bundle.json` is the recommended first-pass sample because it stays lightweight; `configs/emg-overlay.bundle.json` also includes polygons and produces a much larger bundle.
-- `data/emg-base-des-deplacements-2.geojson` is a row-by-row GeoJSON export of the same EMG trip table, not a compact zone lookup, so the parquet remains the recommended OD preprocessing source.
-- The current `data/date_heure_1h_micro.parquet` sample appears to be an aggregated OD/time table without geometry columns, so phase 1 does not render it directly on the map without an external geometry join.
+- `data/emg-base-des-deplacements-2.geojson` is a row-by-row GeoJSON export of the same EMG trip table, not a compact zone lookup, so if you have it locally, the parquet remains the recommended OD preprocessing source.
+- If you have `data/date_heure_1h_micro.parquet` locally, it appears to be an aggregated OD/time table without geometry columns, so phase 1 does not render it directly on the map without an external geometry join.
 
 ### Run over HTTPS locally
 

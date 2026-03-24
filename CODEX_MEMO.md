@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Implement richer OD metric sources and OD render ordering on top of the existing OD analysis mode.
+Clean local git history so accidental large sample data and generated bundles are excluded before the next push.
 
 ## CURRENT_SUBTASK
-Rich OD metric catalogs are now wired end-to-end: the converter emits numeric/category/time metrics, the sidebar exposes separate `Color / Rank by` and `Draw on top by` selectors, and OD edges draw in one globally sorted pass so heavy flows stay visible.
+Rebuilt the local commit stack on top of `origin/master` without `data/*.parquet`, `data/*.geojson`, top-level `output/*.psbundle.zip`, or Python cache artifacts; remaining work is verification and moving `master` to the cleaned history.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -16,6 +16,8 @@ Rich OD metric catalogs are now wired end-to-end: the converter emits numeric/ca
   - Optional HTTPS is enabled with `VITE_DEV_HTTPS=true` plus `VITE_DEV_SSL_CERT` and `VITE_DEV_SSL_KEY`.
   - `.env.example` documents supported Vite env knobs.
   - Repo hygiene: local env overrides (`.env.*.local`) and local TLS certs (`certs/`) are ignored in git.
+  - Large parquet/GeoJSON sample inputs under `data/` are now intentionally local-only and git-ignored.
+  - Generated top-level bundle archives under `output/*.psbundle.zip` are now intentionally git-ignored; only tiny committed fixtures under `output/parquet-examples/` stay in the repo.
   - Codex command runs that use login shells can resolve `/usr/local/bin/node` (`v10.12.0`) before `fnm`, which breaks modern npm/vite (`Cannot find module 'node:path'`); non-login shell resolves `fnm` Node (`v24.x`) and works.
 - Pages deploy is handled by `.github/workflows/deploy.yml` on push to `master` or `main` plus manual dispatch.
 - `dist/` is git-ignored and should not be committed; Actions artifact upload publishes built output.
