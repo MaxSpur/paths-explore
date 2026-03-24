@@ -1,0 +1,15 @@
+{
+  "bundle_id": "emg-overlay-sample",
+  "bundle_name": "EMG Overlay Sample",
+  "simplification_tolerance_meters": 25.0,
+  "inputs": [
+    {
+      "kind": "geoparquet_overlay",
+      "path": "data/emg-base-des-deplacements.parquet",
+      "layer_name_prefix": "EMG",
+      "geometry_columns": ["centroid_o", "geom_o"],
+      "feature_id_column": "num_depl",
+      "metadata_columns": ["jour_emg", "type_od", "mode_principal", "poids_jour"]
+    }
+  ]
+}

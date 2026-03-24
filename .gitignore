@@ -12,3 +12,6 @@ coverage/
 
 # Local HTTPS certs for dev
 certs/
+
+# Repo-local Python deps for parquet tooling
+.vendor-py/

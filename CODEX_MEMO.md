@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Sanitize repo ignores for local HTTPS/env setup.
+Implement the OD analysis mode and clean up bundle interaction semantics on top of the existing bundle pipeline.
 
 ## CURRENT_SUBTASK
-Completed: `.gitignore` now excludes local `.env.*.local` and `certs/` while keeping `.env.example` trackable.
+OD analysis mode is implemented: bundles can now declare `trajectoryKind`, legacy OD bundles are inferred at load time, the bottom-right legend is shared across velocity/acceleration/OD, and OD edges are selected/highlighted on click with explicit panel-based extraction.
 
 ## ARCHITECTURE_FACTS
 - Workspace started empty.
@@ -48,7 +48,7 @@ Completed: `.gitignore` now excludes local `.env.*.local` and `certs/` while kee
   - Dragging one selected point in edit mode moves all selected points together.
   - During drag, connected segments now update live for moved points (including velocity-colored per-segment polylines), so geometry follows the cursor before mouse release.
   - Track history now supports undo/redo for point edits and structural mutations: `movePoints`, `deleteSelectedPoints`, `updateTrackPoints`, `addTracks`, `removeTrack`, visibility toggles, points/lines toggles, and track reordering.
-  - Velocity settings are intentionally excluded from undo history (they remain persisted in localStorage).
+  - Analysis settings are intentionally excluded from undo history; they persist in localStorage under `path-segments-analysis-settings-v1`, with one-time migration from the legacy velocity-only key.
   - Keyboard shortcuts:
     - Undo: `Cmd+Z` (macOS) / `Ctrl+Z` (Windows/Linux)
     - Redo: `Shift+Cmd+Z` (macOS), `Ctrl+Shift+Z` or `Ctrl+Y` (Windows/Linux)
@@ -71,19 +71,17 @@ Completed: `.gitignore` now excludes local `.env.*.local` and `certs/` while kee
   - Per-track collapse toggle by clicking track header row.
   - Collapsed cards show header + color dot only.
   - Track actions include export in original format family (`gpx`, `kml`, `geojson`/`json`).
-- Velocity visualization behavior:
-  - Velocity section header now includes a compact mode-cycle button (`Ⓞ/🅥/🅐`) in section controls.
-  - Clicking the header mini button cycles `off -> velocity -> acceleration -> off`, including when the section content is collapsed.
-  - Mini button is synchronized from `syncVelocityControls`, so header state and full mode pills remain consistent.
+- Analysis behavior:
+  - Sidebar `Velocity` section is now `Analysis`, with modes `Off`, `Velocity`, `Acceleration`, and `OD`.
+  - The section header includes a compact mode-cycle button (`Ⓞ/🅥/🅐/OD`) that stays synchronized with the full mode pills.
   - Legend color scale is now a clickable control (`cycle-legend-colormap`) that rotates through `COLORMAPS` in order.
   - Legend scale `title`/`aria-label` includes the active colormap name so hover reveals current selection.
-  - Sidebar now uses pill controls: `Off` / `Velocity` / `Acceleration` (replacing the old checkbox toggle).
-  - Scale mode now uses pill controls: `Auto` / `Fixed` (replacing the old dropdown).
+  - Velocity/acceleration keep `Auto` / `Fixed` scale controls; OD mode swaps those controls for `Weight` / `Trip Count`.
   - Scale modes: `auto` (max from visible loaded tracks) and `fixed` (user-entered max in current metric unit).
   - Segment velocity uses consecutive point distance and timestamp delta; segments without valid timing render at colormap minimum.
   - Acceleration mode colors segments by absolute acceleration magnitude (`m/s²`) from consecutive timed segment velocities.
   - Colormap selection is CSV-backed and loaded from discovered files.
-  - Map legend now adapts to active metric (`Velocity` or `Acceleration`) including units.
+  - Map legend now adapts to active analysis mode (`Velocity`, `Acceleration`, or `OD`) including units/labels and histogram content.
   - Map legend includes `Next Peak`, cycling through highest metric segments and focusing each one.
   - While editing a track, `Next Peak` scope is filtered to the editing track only (button status/count reflects filtered set).
   - `Next Peak` now auto-selects the endpoint point of the focused peak segment when editing is active, so point edits can start immediately.
@@ -102,6 +100,7 @@ Completed: `.gitignore` now excludes local `.env.*.local` and `certs/` while kee
   - Popup/tip visuals are now semi-transparent (`rgba(246,250,248,0.82)`) with lighter shadow to reduce occlusion while reading.
   - After `Next Peak`, focus is moved from legend controls back to map container to avoid keyboard actions being consumed by focused UI buttons.
   - Map legend includes a colorful, colormap-aligned histogram above the scale with click-cycle modes: `standard` (coarser bins), `precision` (many thin bins, no gaps), `hidden`.
+  - OD mode reuses the same legend shell for `Top Flow`, `Next Flow`, selected edge details, and `Extract Selected`.
   - Legend histogram includes a compact single-row axis-mode toggle (`L/L`, `L/G`, `G/L`, `G/G`) for linear/log scaling on X and Y independently.
   - Axis-mode toggle is hidden when histogram mode is `hidden` to reduce legend clutter.
   - X-axis log mode redistributes bins with a log transform while preserving colormap meaning via inverse sampling; Y-axis log mode scales bar heights with log(count).
@@ -119,7 +118,7 @@ Completed: `.gitignore` now excludes local `.env.*.local` and `certs/` while kee
 - Standard and precision histogram modes now share the same minimum legend height and histogram minimum height.
 - Resize-enabled legend uses a sharp top-left corner with a compact triangular corner handle, avoiding header whitespace and title overlap.
 - `README.md` has been refreshed to reflect current controls, legend modes, undo scope, keyboard shortcuts, and deployment behavior.
-  - Velocity UI settings are persisted in `localStorage` (`path-segments-velocity-settings-v1`) and restored on reload, including selected colormap.
+  - Analysis UI settings are persisted in `localStorage` (`path-segments-analysis-settings-v1`) and restored on reload, including selected colormap and OD metric.
   - While colorized segments are active on the editing track, edit markers switch to minimal ring-style markers so segment colors remain visible.
 - Segment info workflow:
   - `Info` mode lets users click timed colorized segments to open a Leaflet popup.
@@ -191,6 +190,52 @@ Completed: `.gitignore` now excludes local `.env.*.local` and `certs/` while kee
 
 ## OPEN_ITEMS
 - Optional: support custom display names/metadata per colormap instead of filename-derived labels.
+- Confirm the real row-level trajectory parquet schema once a true trajectory sample is available; current `./data` parquet files appear to be ancillary OD/GeoParquet sources, not line trajectories.
+
+## DISCOVERIES
+- `data/emg-base-des-deplacements.parquet` exposes GeoParquet footer metadata for `geom_o` (`Polygon`/`MultiPolygon` WKB) and `centroid_o` (`Point` WKB).
+- `data/date_heure_1h_micro.parquet` appears to be aggregated OD/time-volume data with fields such as `date`, `tranchehoraire`, `origine`, `destination`, `typeflux`, `type`, `volume`, and `iq1`.
+- The existing client runtime persists only `Track[]` in IndexedDB; high-volume bundle state must remain outside `TrackStore` and persistence to avoid polluting edit history and local storage.
+- Global drag-and-drop should not rely only on `dataTransfer.types.includes("Files")`; some macOS/browser payloads expose file drags via `items[kind=file]` and types such as `public.file-url`.
+- The full `emg-overlay` sample bundle is much heavier than needed for first-pass validation because it includes polygons; `centroid_o` alone produces a much smaller drop-in bundle that is more representative of the intended lightweight workflow.
+- Bundle parsing now reports stage messages (`Reading`, `Scanning bundle archive`, `Decompressing ...`, `Parsing ... JSON`, `Preparing overlay layer ...`, `Normalizing overlay ...`) so inert imports can be localized without opening devtools.
+- Generated `.psbundle.zip` files use standard ZIP deflate compression; previous runtime logic relied on browser `DecompressionStream("deflate-raw")`, which was the compressed-entry path user bundles exercised and the test suite originally missed because tests only used stored ZIP entries.
+- Bundle canvas content lives inside a moving Leaflet pane, so drawing and hit-testing must share one coordinate space. The current fix keeps the canvas anchored to the view origin and uses container-space geometry consistently.
+- Bundle manifest/runtime now carries `trajectoryKind: "path" | "od-edge"`, and old OD bundles are inferred if they are 2-point trajectories with numeric `weight` + `tripCount`.
+- OD edges should not auto-extract on click; selection/highlight now lives in app state independently of editable track selection, and extraction is explicit from the analysis panel.
+- Bundle canvas redraw/hit-testing now shares one view-origin-relative coordinate space, which fixes OD clipping/selection behavior during pan/zoom.
+- `trajectory_points` configs now support `trajectory_limit` plus `trajectory_sampling_mode` (`decimate` or `first`) to keep representative subsets in generated bundles before the browser ever sees them.
+- `emg-base-des-deplacements.parquet` is not trajectory geometry. It is a trip/event table with repeated origin-zone geometry attached:
+  - 80,694 rows total
+  - 55,460 rows have non-null `geom_o`/`centroid_o`
+  - only 1,036 unique non-null origin geometries
+  - actual observed `geom_o` values are `MultiPolygon`; actual observed `centroid_o` values are `Point`
+  - destination geometry is not present in the file
+- `date_heure_1h_micro.parquet` is a non-spatial OD/time aggregate cube:
+  - 176,084 rows
+  - single date `2024-11-04`
+  - no GeoParquet metadata or geometry columns
+  - `origine`/`destination` ids do not match the spatial file's `code_insee_o` geometry lookup at all (0 overlaps)
+- `data/emg-base-des-deplacements-2.geojson` is not a compact zone lookup. It is a row-for-row GeoJSON export of the same EMG trip table:
+  - 80,694 GeoJSON features, matching the parquet row count exactly
+  - same first record keys/values as the parquet sample (`46_0954-dimanche-44885-2`, LINAS -> MARCOUSSIS, same `poids_jour`, etc.)
+  - only 55,460 non-null geometries, repeated across 1,036 unique origin codes
+  - file size is much larger than the parquet (`202 MB` GeoJSON vs `39 MB` parquet), so it should not be the default OD preprocessing source
+- EMG OD straight-line coverage stays bounded by the origin-centroid lookup embedded in the parquet:
+  - 1,036 unique codes with centroids
+  - 49,853 rows resolve both origin and destination centroids through that lookup
+  - 11,377 unique OD pairs resolve to centroid-to-centroid edges
+  - 22,675 of those matched rows are self-loops (`origin == destination`) and should usually be skipped in line rendering
+- New OD workflow decisions:
+  - keep the browser bundle contract unchanged and encode weighted OD edges as ordinary bundle trajectories with `properties.weight`
+  - add a new converter input kind, `weighted_od_graph`, instead of building a separate runtime path
+  - use the parquet as the source of truth and derive the centroid lookup internally from `code_insee_o -> centroid_o`
+  - default EMG sample config limits to the top 2,500 non-self-loop edges by aggregated `poids_jour`
+
+## NEXT_STEPS
+- User-side manual preview: reload the app, switch to `OD` mode, and confirm `Top Flow` / `Next Flow`, click selection, histogram recoloring, and explicit `Extract Selected` all behave as expected.
+- Optional follow-up: expose a second OD config preset for more aggressive decimation vs strongest-edge selection.
+- Optional follow-up: if a true deduplicated commune lookup is provided later, allow `weighted_od_graph` to consume that lookup directly instead of deriving it from the trip table.
 
 ## GIT_UI_PUSH_SETUP
 - Goal: make Codex UI `Push` work via plain `git push` without manual remote args.

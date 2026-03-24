@@ -4,13 +4,17 @@ import { serializeTrack } from "./io/serializers";
 import { MapView, type UndoNavigationMode } from "./map/mapView";
 import { computeVelocityScaleInfo } from "./map/velocity";
 import { COLORMAPS, DEFAULT_COLORMAP_ID, getColormapById } from "./colormaps";
+import { BundleStore, extractBundleTrajectoryAsTrack, isOdEdgeBundle } from "./model/bundles";
 import { TrackStore } from "./model/store";
 import type {
+  AnalysisMode,
+  AnalysisSettings,
   AppState,
   EditInteractionMode,
   ImportSummary,
   MapBaseStyle,
   MapViewSettings,
+  OdMetric,
   Track,
   VelocityViewSettings
 } from "./model/types";
@@ -20,11 +24,17 @@ import { SidebarView } from "./ui/sidebar";
 interface RenderOptions {
   fitToVisible?: boolean;
   fitToTrackIds?: string[];
+  fitToBundleIds?: string[];
 }
 
 type PointSelectionContext = "none" | "point-click" | "area-select" | "peak-nav";
+interface SelectedOdEdge {
+  bundleId: string;
+  trajectoryId: string;
+}
 
-const VELOCITY_SETTINGS_STORAGE_KEY = "path-segments-velocity-settings-v1";
+const ANALYSIS_SETTINGS_STORAGE_KEY = "path-segments-analysis-settings-v1";
+const LEGACY_VELOCITY_SETTINGS_STORAGE_KEY = "path-segments-velocity-settings-v1";
 const MAP_VIEW_SETTINGS_STORAGE_KEY = "path-segments-map-view-settings-v1";
 const VELOCITY_MAX_LIMIT = 350;
 const MAP_FILTER_PERCENT_LIMIT = 100;
@@ -32,12 +42,12 @@ const UNDO_PAN_NAVIGATION_APPLY_DELAY_MS = 150;
 const UNDO_TELEPORT_NAVIGATION_APPLY_DELAY_MS = 300;
 const PEAK_DELETE_REFOCUS_DELAY_MS = 200;
 
-const DEFAULT_VELOCITY_SETTINGS: VelocityViewSettings = {
-  enabled: false,
-  metric: "velocity",
-  scaleMode: "auto",
-  fixedMax: 60,
-  colormapId: DEFAULT_COLORMAP_ID
+const DEFAULT_ANALYSIS_SETTINGS: AnalysisSettings = {
+  mode: "off",
+  colormapId: DEFAULT_COLORMAP_ID,
+  velocityScaleMode: "auto",
+  velocityFixedMax: 60,
+  odMetric: "weight"
 };
 const DEFAULT_MAP_VIEW_SETTINGS: MapViewSettings = {
   baseStyle: "osm-standard",
@@ -61,9 +71,38 @@ function clampMapFilterPercent(value: number): number {
   return Math.max(0, Math.min(MAP_FILTER_PERCENT_LIMIT, value));
 }
 
-function normalizeVelocitySettings(
+function normalizeAnalysisSettings(
+  settings: Partial<AnalysisSettings> | null | undefined
+): AnalysisSettings {
+  const mode: AnalysisMode =
+    settings?.mode === "velocity" ||
+    settings?.mode === "acceleration" ||
+    settings?.mode === "od"
+      ? settings.mode
+      : "off";
+  const velocityScaleMode = settings?.velocityScaleMode === "fixed" ? "fixed" : "auto";
+  const rawVelocityFixedMax =
+    typeof settings?.velocityFixedMax === "number"
+      ? settings.velocityFixedMax
+      : Number.parseFloat(String(settings?.velocityFixedMax ?? Number.NaN));
+  const velocityFixedMax = Number.isFinite(rawVelocityFixedMax)
+    ? clampVelocityFixedMax(rawVelocityFixedMax)
+    : DEFAULT_ANALYSIS_SETTINGS.velocityFixedMax;
+  const colormapId = getColormapById(String(settings?.colormapId ?? DEFAULT_COLORMAP_ID)).id;
+  const odMetric: OdMetric = settings?.odMetric === "tripCount" ? "tripCount" : "weight";
+
+  return {
+    mode,
+    colormapId,
+    velocityScaleMode,
+    velocityFixedMax,
+    odMetric
+  };
+}
+
+function migrateLegacyVelocitySettings(
   settings: Partial<VelocityViewSettings> | null | undefined
-): VelocityViewSettings {
+): AnalysisSettings {
   const metric = settings?.metric === "acceleration" ? "acceleration" : "velocity";
   const scaleMode = settings?.scaleMode === "fixed" ? "fixed" : "auto";
   const rawFixedMax =
@@ -72,15 +111,27 @@ function normalizeVelocitySettings(
       : Number.parseFloat(String(settings?.fixedMax ?? Number.NaN));
   const fixedMax = Number.isFinite(rawFixedMax)
     ? clampVelocityFixedMax(rawFixedMax)
-    : DEFAULT_VELOCITY_SETTINGS.fixedMax;
-  const colormapId = getColormapById(String(settings?.colormapId ?? DEFAULT_COLORMAP_ID)).id;
+    : DEFAULT_ANALYSIS_SETTINGS.velocityFixedMax;
+
+  return normalizeAnalysisSettings({
+    mode: Boolean(settings?.enabled) ? metric : "off",
+    colormapId: String(settings?.colormapId ?? DEFAULT_COLORMAP_ID),
+    velocityScaleMode: scaleMode,
+    velocityFixedMax: fixedMax,
+    odMetric: DEFAULT_ANALYSIS_SETTINGS.odMetric
+  });
+}
+
+function deriveVelocityViewSettings(settings: AnalysisSettings): VelocityViewSettings {
+  const metric = settings.mode === "acceleration" ? "acceleration" : "velocity";
+  const enabled = settings.mode === "velocity" || settings.mode === "acceleration";
 
   return {
-    enabled: Boolean(settings?.enabled),
+    enabled,
     metric,
-    scaleMode,
-    fixedMax,
-    colormapId
+    scaleMode: settings.velocityScaleMode,
+    fixedMax: settings.velocityFixedMax,
+    colormapId: settings.colormapId
   };
 }
 
@@ -110,21 +161,34 @@ function normalizeMapViewSettings(
   };
 }
 
-function loadVelocitySettings(): VelocityViewSettings {
+function loadAnalysisSettings(): AnalysisSettings {
   if (typeof localStorage === "undefined") {
-    return { ...DEFAULT_VELOCITY_SETTINGS };
+    return { ...DEFAULT_ANALYSIS_SETTINGS };
   }
 
   try {
-    const raw = localStorage.getItem(VELOCITY_SETTINGS_STORAGE_KEY);
-    if (!raw) {
-      return { ...DEFAULT_VELOCITY_SETTINGS };
+    const raw = localStorage.getItem(ANALYSIS_SETTINGS_STORAGE_KEY);
+    if (raw) {
+      return normalizeAnalysisSettings(JSON.parse(raw) as Partial<AnalysisSettings>);
     }
 
-    const parsed = JSON.parse(raw) as Partial<VelocityViewSettings>;
-    return normalizeVelocitySettings(parsed);
+    const legacyRaw = localStorage.getItem(LEGACY_VELOCITY_SETTINGS_STORAGE_KEY);
+    if (!legacyRaw) {
+      return { ...DEFAULT_ANALYSIS_SETTINGS };
+    }
+
+    const migrated = migrateLegacyVelocitySettings(
+      JSON.parse(legacyRaw) as Partial<VelocityViewSettings>
+    );
+    try {
+      localStorage.setItem(ANALYSIS_SETTINGS_STORAGE_KEY, JSON.stringify(migrated));
+      localStorage.removeItem(LEGACY_VELOCITY_SETTINGS_STORAGE_KEY);
+    } catch {
+      // Ignore persistence failures during migration.
+    }
+    return migrated;
   } catch {
-    return { ...DEFAULT_VELOCITY_SETTINGS };
+    return { ...DEFAULT_ANALYSIS_SETTINGS };
   }
 }
 
@@ -146,13 +210,13 @@ function loadMapViewSettings(): MapViewSettings {
   }
 }
 
-function saveVelocitySettings(settings: VelocityViewSettings): void {
+function saveAnalysisSettings(settings: AnalysisSettings): void {
   if (typeof localStorage === "undefined") {
     return;
   }
 
   try {
-    localStorage.setItem(VELOCITY_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+    localStorage.setItem(ANALYSIS_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
   } catch {
     // Ignore persistence failures (quota/private mode).
   }
@@ -170,16 +234,16 @@ function saveMapViewSettings(settings: MapViewSettings): void {
   }
 }
 
-function areVelocitySettingsEqual(
-  left: VelocityViewSettings,
-  right: VelocityViewSettings
+function areAnalysisSettingsEqual(
+  left: AnalysisSettings,
+  right: AnalysisSettings
 ): boolean {
   return (
-    left.enabled === right.enabled &&
-    left.metric === right.metric &&
-    left.scaleMode === right.scaleMode &&
-    left.fixedMax === right.fixedMax &&
-    left.colormapId === right.colormapId
+    left.mode === right.mode &&
+    left.colormapId === right.colormapId &&
+    left.velocityScaleMode === right.velocityScaleMode &&
+    left.velocityFixedMax === right.velocityFixedMax &&
+    left.odMetric === right.odMetric
   );
 }
 
@@ -354,18 +418,22 @@ export function createApp(root: HTMLElement): void {
   const mapElement = root.querySelector("#map") as HTMLElement;
 
   let editMode: EditInteractionMode = "move";
-  let velocitySettings: VelocityViewSettings = loadVelocitySettings();
+  let analysisSettings: AnalysisSettings = loadAnalysisSettings();
   let mapViewSettings: MapViewSettings = loadMapViewSettings();
-  saveVelocitySettings(velocitySettings);
+  saveAnalysisSettings(analysisSettings);
   saveMapViewSettings(mapViewSettings);
   const store = new TrackStore();
+  const bundleStore = new BundleStore();
   const persistence = createTrackPersistence();
   let latestSummary: ImportSummary | undefined;
+  let activeImportStatusMessage: string | undefined;
   let sidebar: SidebarView;
   let mapView: MapView;
   let lastPointSelectionSource: PointSelectionContext = "none";
   let pendingPeakDeleteRefocusTimerId: number | undefined;
   let lastImportedTrackIds: string[] = [];
+  let lastImportedBundleIds: string[] = [];
+  let selectedOdEdge: SelectedOdEdge | undefined;
 
   const cancelPendingPeakDeleteRefocus = (): void => {
     if (pendingPeakDeleteRefocusTimerId === undefined) {
@@ -376,14 +444,14 @@ export function createApp(root: HTMLElement): void {
     pendingPeakDeleteRefocusTimerId = undefined;
   };
 
-  const setVelocitySettings = (next: VelocityViewSettings): boolean => {
-    const normalized = normalizeVelocitySettings(next);
-    if (areVelocitySettingsEqual(normalized, velocitySettings)) {
+  const setAnalysisSettings = (next: AnalysisSettings): boolean => {
+    const normalized = normalizeAnalysisSettings(next);
+    if (areAnalysisSettingsEqual(normalized, analysisSettings)) {
       return false;
     }
 
-    velocitySettings = normalized;
-    saveVelocitySettings(velocitySettings);
+    analysisSettings = normalized;
+    saveAnalysisSettings(analysisSettings);
     return true;
   };
 
@@ -398,8 +466,39 @@ export function createApp(root: HTMLElement): void {
     return true;
   };
 
-  const cycleVelocityColormap = (): void => {
-    const currentIndex = COLORMAPS.findIndex((colormap) => colormap.id === velocitySettings.colormapId);
+  const clearSelectedOdEdgeForBundle = (bundleId: string): void => {
+    if (selectedOdEdge?.bundleId === bundleId) {
+      selectedOdEdge = undefined;
+    }
+  };
+
+  const extractOdEdgeAsTrack = (target: SelectedOdEdge | undefined): void => {
+    if (!target) {
+      return;
+    }
+
+    const loadedBundle = bundleStore.getState().bundles.find((bundle) => bundle.id === target.bundleId);
+    if (!loadedBundle || !isOdEdgeBundle(loadedBundle)) {
+      return;
+    }
+
+    const extractedTrack = extractBundleTrajectoryAsTrack(loadedBundle, target.trajectoryId);
+    if (!extractedTrack) {
+      return;
+    }
+
+    const previousTrackIds = new Set(store.getState().tracks.map((track) => track.id));
+    store.addTracks([extractedTrack]);
+    const extractedTrackIds = store
+      .getState()
+      .tracks.filter((track) => !previousTrackIds.has(track.id))
+      .map((track) => track.id);
+
+    render({ fitToTrackIds: extractedTrackIds });
+  };
+
+  const cycleAnalysisColormap = (): void => {
+    const currentIndex = COLORMAPS.findIndex((colormap) => colormap.id === analysisSettings.colormapId);
     const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % COLORMAPS.length : 0;
     const nextColormap = COLORMAPS[nextIndex];
     if (!nextColormap) {
@@ -407,8 +506,8 @@ export function createApp(root: HTMLElement): void {
     }
 
     if (
-      setVelocitySettings({
-        ...velocitySettings,
+      setAnalysisSettings({
+        ...analysisSettings,
         colormapId: nextColormap.id
       })
     ) {
@@ -418,6 +517,8 @@ export function createApp(root: HTMLElement): void {
 
   const render = (options: RenderOptions = {}): void => {
     const state = store.getState();
+    const bundleState = bundleStore.getState();
+    const velocitySettings = deriveVelocityViewSettings(analysisSettings);
     const velocityScaleTracks =
       velocitySettings.scaleMode === "auto"
         ? state.tracks.filter((track) => track.visible)
@@ -426,9 +527,11 @@ export function createApp(root: HTMLElement): void {
 
     sidebar.render(
       state,
+      bundleState,
       latestSummary,
+      activeImportStatusMessage,
       editMode,
-      velocitySettings,
+      analysisSettings,
       velocityScaleInfo.maxDisplayValue,
       mapViewSettings
     );
@@ -437,9 +540,13 @@ export function createApp(root: HTMLElement): void {
       editingTrackId: state.editingTrackId,
       selectedPointIds: state.selectedPointIds,
       editMode,
+      analysisSettings,
+      selectedOdEdge,
       velocitySettings,
+      bundles: bundleState.bundles,
       fitToVisible: options.fitToVisible,
-      fitToTrackIds: options.fitToTrackIds
+      fitToTrackIds: options.fitToTrackIds,
+      fitToBundleIds: options.fitToBundleIds
     });
   };
 
@@ -460,14 +567,42 @@ export function createApp(root: HTMLElement): void {
       store.selectPoints(trackId, pointIds, additive);
       render();
     },
+    onBundleTrajectorySelected: (bundleId, trajectoryId) => {
+      const loadedBundle = bundleStore.getState().bundles.find((bundle) => bundle.id === bundleId);
+      if (!loadedBundle) {
+        return;
+      }
+
+      const extractedTrack = extractBundleTrajectoryAsTrack(loadedBundle, trajectoryId);
+      if (!extractedTrack) {
+        return;
+      }
+
+      const previousTrackIds = new Set(store.getState().tracks.map((track) => track.id));
+      store.addTracks([extractedTrack]);
+      const extractedTrackIds = store
+        .getState()
+        .tracks.filter((track) => !previousTrackIds.has(track.id))
+        .map((track) => track.id);
+
+      render({ fitToTrackIds: extractedTrackIds });
+    },
+    onOdEdgeSelected: (bundleId, trajectoryId) => {
+      selectedOdEdge = { bundleId, trajectoryId };
+      render();
+    },
+    onExtractSelectedOdEdge: () => {
+      extractOdEdgeAsTrack(selectedOdEdge);
+    },
     onMapBackgroundClick: () => {
       cancelPendingPeakDeleteRefocus();
       lastPointSelectionSource = "none";
+      selectedOdEdge = undefined;
       store.setSelectedPoints(undefined, []);
       render();
     },
-    onCycleVelocityColormap: () => {
-      cycleVelocityColormap();
+    onCycleAnalysisColormap: () => {
+      cycleAnalysisColormap();
     }
   });
 
@@ -480,14 +615,33 @@ export function createApp(root: HTMLElement): void {
         .tracks.filter((track) => !previousTrackIds.has(track.id))
         .map((track) => track.id);
     },
+    onBundles: (bundles) => {
+      const previousBundleIds = new Set(bundleStore.getState().bundles.map((bundle) => bundle.id));
+      bundleStore.addBundles(bundles);
+      lastImportedBundleIds = bundleStore
+        .getState()
+        .bundles.filter((bundle) => !previousBundleIds.has(bundle.id))
+        .map((bundle) => bundle.id);
+    },
     onSummary: (summary) => {
       latestSummary = summary;
-      if (summary.importedTrackCount > 0 && lastImportedTrackIds.length > 0) {
-        render({ fitToTrackIds: lastImportedTrackIds });
+      if (
+        (summary.importedTrackCount > 0 && lastImportedTrackIds.length > 0) ||
+        (summary.importedBundleCount > 0 && lastImportedBundleIds.length > 0)
+      ) {
+        render({
+          fitToTrackIds: lastImportedTrackIds,
+          fitToBundleIds: lastImportedBundleIds
+        });
       } else {
         render();
       }
       lastImportedTrackIds = [];
+      lastImportedBundleIds = [];
+    },
+    onImportStatusChange: (message) => {
+      activeImportStatusMessage = message;
+      render();
     }
   });
 
@@ -522,6 +676,9 @@ export function createApp(root: HTMLElement): void {
     onFocusTrack: (trackId) => {
       mapView.focusTrack(trackId, store.getState().tracks);
     },
+    onFocusBundle: (bundleId) => {
+      mapView.focusBundle(bundleId);
+    },
     onExportTrack: (trackId) => {
       const track = store.getState().tracks.find((candidate) => candidate.id === trackId);
       if (!track) {
@@ -533,6 +690,26 @@ export function createApp(root: HTMLElement): void {
     },
     onDeleteTrack: (trackId) => {
       store.removeTrack(trackId);
+      render({ fitToVisible: true });
+    },
+    onToggleBundleVisibility: (bundleId, visible) => {
+      bundleStore.setBundleVisibility(bundleId, visible);
+      if (!visible) {
+        clearSelectedOdEdgeForBundle(bundleId);
+      }
+      render();
+    },
+    onToggleBundleOverlays: (bundleId, overlaysVisible) => {
+      bundleStore.setBundleOverlaysVisible(bundleId, overlaysVisible);
+      render();
+    },
+    onToggleBundleExtraction: (bundleId, extractionEnabled) => {
+      bundleStore.setBundleExtractionEnabled(bundleId, extractionEnabled);
+      render();
+    },
+    onDeleteBundle: (bundleId) => {
+      bundleStore.removeBundle(bundleId);
+      clearSelectedOdEdgeForBundle(bundleId);
       render({ fitToVisible: true });
     },
     onToggleEdit: (trackId) => {
@@ -554,45 +731,42 @@ export function createApp(root: HTMLElement): void {
       editMode = mode;
       render();
     },
-    onVelocityModeChange: (mode) => {
-      if (mode === "off") {
-        setVelocitySettings({
-          ...velocitySettings,
-          enabled: false
-        });
-        render();
-        return;
-      }
-
-      setVelocitySettings({
-        ...velocitySettings,
-        enabled: true,
-        metric: mode
+    onAnalysisModeChange: (mode) => {
+      setAnalysisSettings({
+        ...analysisSettings,
+        mode
       });
       render();
     },
-    onVelocityScaleModeChange: (mode) => {
-      setVelocitySettings({
-        ...velocitySettings,
-        scaleMode: mode
+    onAnalysisVelocityScaleModeChange: (mode) => {
+      setAnalysisSettings({
+        ...analysisSettings,
+        velocityScaleMode: mode
       });
       render();
     },
-    onVelocityFixedMaxChange: (maxValue) => {
+    onAnalysisVelocityFixedMaxChange: (maxValue) => {
       if (!Number.isFinite(maxValue)) {
         return;
       }
 
-      setVelocitySettings({
-        ...velocitySettings,
-        fixedMax: clampVelocityFixedMax(maxValue)
+      setAnalysisSettings({
+        ...analysisSettings,
+        velocityFixedMax: clampVelocityFixedMax(maxValue)
       });
       render();
     },
-    onVelocityColormapChange: (colormapId) => {
-      setVelocitySettings({
-        ...velocitySettings,
+    onAnalysisColormapChange: (colormapId) => {
+      setAnalysisSettings({
+        ...analysisSettings,
         colormapId
+      });
+      render();
+    },
+    onAnalysisOdMetricChange: (odMetric) => {
+      setAnalysisSettings({
+        ...analysisSettings,
+        odMetric
       });
       render();
     },
@@ -755,6 +929,7 @@ export function createApp(root: HTMLElement): void {
     store.hydrateTracks(tracks);
     latestSummary = {
       importedTrackCount: tracks.length,
+      importedBundleCount: 0,
       issues: []
     };
     render({ fitToVisible: true });

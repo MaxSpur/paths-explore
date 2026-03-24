@@ -1,0 +1,23 @@
+{
+  "bundle_id": "trajectory-sample",
+  "bundle_name": "Trajectory Sample",
+  "simplification_tolerance_meters": 25.0,
+  "inputs": [
+    {
+      "kind": "trajectory_points",
+      "path": "data/emg-base-des-deplacements.parquet",
+      "trajectory_id_column": "trajectory_id",
+      "lat_column": "latitude",
+      "lng_column": "longitude",
+      "order_column": "sequence",
+      "time_column": "timestamp",
+      "name_column": "trajectory_name",
+      "metadata_columns": [
+        "vehicle_id",
+        "day"
+      ],
+      "trajectory_limit": 1000,
+      "trajectory_sampling_mode": "decimate"
+    }
+  ]
+}

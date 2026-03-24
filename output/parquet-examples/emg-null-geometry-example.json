@@ -1,0 +1,39 @@
+{
+  "record_type": "trip_record_without_geometry",
+  "sample_row": {
+    "key": "46_0955-jeudi-44882-5",
+    "id": "46_0955",
+    "jour_emg": "jeudi",
+    "date_emg": "2022-11-17",
+    "type_jour": null,
+    "num_depl": "5",
+    "type_od": "INTERNE",
+    "com_o": "PARIS-11E-ARRONDISSEMENT",
+    "com_d": "SAINT-LEU-LA-FORET",
+    "code_insee_o": "75111",
+    "code_insee_d": "95563",
+    "couronne_o": "PARIS",
+    "couronne_d": "GC",
+    "couronne_od": "PARIS <--> GC",
+    "dept_o": "75",
+    "dept_d": "95",
+    "date_o": "2022-11-17",
+    "heure_o": "15:34:00",
+    "date_d": "2022-11-17",
+    "heure_d": "2001-01-01",
+    "duree": 56.0,
+    "motif_o": "LOISIRS",
+    "motif_d": "ACCOM",
+    "mode_principal": "RER/TRAIN",
+    "mode_1": "METRO",
+    "mode_2": "RER/TRAIN",
+    "mode_3": null,
+    "mode_4": null,
+    "mode_5": null,
+    "poids_jour": 656.88676442
+  },
+  "geometry_summary": {
+    "geom_o_kind": null,
+    "centroid_o_kind": null
+  }
+}

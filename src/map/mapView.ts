@@ -1,5 +1,6 @@
 import L from "leaflet";
 import { getColormapById, sampleColormapColor } from "../colormaps";
+import { getOdEdgeMetricValue, isOdEdgeBundle, type LoadedTrajectoryBundle } from "../model/bundles";
 import {
   computeTrackSegmentAccelerations,
   computeTrackSegmentVelocities,
@@ -7,10 +8,13 @@ import {
   normalizeVelocity,
   type SegmentColorScaleInfo
 } from "./velocity";
+import { BundleCanvasLayer } from "./bundleCanvasLayer";
 import type {
+  AnalysisSettings,
   EditInteractionMode,
   MapBaseStyle,
   MapViewSettings,
+  OdMetric,
   PointCoordinateUpdate,
   SegmentColorMetric,
   Track,
@@ -19,11 +23,15 @@ import type {
 } from "../model/types";
 
 interface RenderOptions {
+  bundles?: LoadedTrajectoryBundle[];
   editingTrackId?: string;
   selectedPointIds?: string[];
   editMode?: EditInteractionMode;
   fitToVisible?: boolean;
   fitToTrackIds?: string[];
+  fitToBundleIds?: string[];
+  analysisSettings?: AnalysisSettings;
+  selectedOdEdge?: { bundleId: string; trajectoryId: string };
   velocitySettings?: VelocityViewSettings;
 }
 
@@ -38,8 +46,11 @@ interface MapViewCallbacks {
   ) => void;
   onPointsMoved?: (trackId: string, updates: PointCoordinateUpdate[]) => void;
   onAreaSelected?: (trackId: string, pointIds: string[], additive: boolean) => void;
+  onBundleTrajectorySelected?: (bundleId: string, trajectoryId: string) => void;
+  onOdEdgeSelected?: (bundleId: string, trajectoryId: string) => void;
+  onExtractSelectedOdEdge?: () => void;
   onMapBackgroundClick?: () => void;
-  onCycleVelocityColormap?: () => void;
+  onCycleAnalysisColormap?: () => void;
 }
 
 interface DraggingPointContext {
@@ -87,6 +98,16 @@ interface RankedMetricSegment {
   unitLabel: string;
   distanceMeters?: number;
   durationSeconds?: number;
+  latLngs: [L.LatLngTuple, L.LatLngTuple];
+}
+
+interface RankedOdEdge {
+  bundleId: string;
+  bundleName: string;
+  trajectoryId: string;
+  trajectoryName: string;
+  weight: number;
+  tripCount: number;
   latLngs: [L.LatLngTuple, L.LatLngTuple];
 }
 
@@ -195,6 +216,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
 export class MapView {
   private map: L.Map;
   private baseTileLayer?: L.TileLayer;
+  private bundleCanvasLayer: BundleCanvasLayer;
   private layerGroup: L.LayerGroup;
   private velocityLegendElement?: HTMLDivElement;
   private spaceCursorElement: HTMLDivElement;
@@ -203,6 +225,7 @@ export class MapView {
   private marqueeSelection?: MarqueeSelectionContext;
   private lassoSelection?: LassoSelectionContext;
   private latestTracks: Track[] = [];
+  private latestBundles: LoadedTrajectoryBundle[] = [];
   private activeEditingTrackId?: string;
   private activeEditMode: EditInteractionMode = "move";
   private suppressNextMapClick = false;
@@ -219,9 +242,13 @@ export class MapView {
   private legendHistogramMode: LegendHistogramMode = "standard";
   private legendHistogramAxisMode: LegendHistogramAxisMode = "lin-lin";
   private lastLegendEnabled = false;
-  private lastLegendSettings?: VelocityViewSettings;
+  private lastAnalysisSettings?: AnalysisSettings;
+  private lastVelocitySettings?: VelocityViewSettings;
   private lastLegendColormap?: LegendColormap;
   private lastLegendScaleInfo?: SegmentColorScaleInfo;
+  private rankedOdEdges: RankedOdEdge[] = [];
+  private rankedOdCursor = -1;
+  private selectedOdEdge?: { bundleId: string; trajectoryId: string };
   private legendResize?: LegendResizeContext;
   private legendWidthPx = DEFAULT_LEGEND_WIDTH_PX;
   private legendHeightPx = DEFAULT_LEGEND_HEIGHT_PX;
@@ -242,6 +269,10 @@ export class MapView {
     this.setBaseMapStyle(this.mapViewSettings.baseStyle);
     this.applyBaseMapFilter(this.mapViewSettings);
 
+    const bundlePane = this.map.createPane("bundlePane");
+    bundlePane.style.zIndex = "360";
+    this.bundleCanvasLayer = new BundleCanvasLayer();
+    this.bundleCanvasLayer.addTo(this.map);
     this.layerGroup = L.layerGroup().addTo(this.map);
     this.spaceCursorElement = L.DomUtil.create(
       "div",
@@ -262,7 +293,7 @@ export class MapView {
     };
     velocityLegendControl.addTo(this.map);
 
-    this.map.on("click", () => {
+    this.map.on("click", (event: L.LeafletMouseEvent) => {
       if (this.suppressNextMapClick) {
         this.suppressNextMapClick = false;
         return;
@@ -270,6 +301,27 @@ export class MapView {
 
       if (this.isSpacePressed) {
         return;
+      }
+
+      if (!this.activeEditingTrackId && this.lastAnalysisSettings?.mode === "od") {
+        const odSelection = this.bundleCanvasLayer.findNearestTrajectory(event.latlng, "od-edge");
+        if (odSelection) {
+          this.clearInfoPopup();
+          this.callbacks.onOdEdgeSelected?.(odSelection.bundleId, odSelection.trajectoryId);
+          return;
+        }
+      }
+
+      if (this.lastAnalysisSettings?.mode !== "od") {
+        const bundleSelection = this.bundleCanvasLayer.findNearestTrajectory(event.latlng, "path");
+        if (bundleSelection) {
+          this.clearInfoPopup();
+          this.callbacks.onBundleTrajectorySelected?.(
+            bundleSelection.bundleId,
+            bundleSelection.trajectoryId
+          );
+          return;
+        }
       }
 
       this.clearInfoPopup();
@@ -309,8 +361,11 @@ export class MapView {
 
   renderTracks(tracks: Track[], options: RenderOptions = {}): void {
     this.latestTracks = tracks;
+    this.latestBundles = options.bundles ?? [];
     this.activeEditingTrackId = options.editingTrackId;
     this.activeEditMode = options.editMode ?? "move";
+    this.lastAnalysisSettings = options.analysisSettings;
+    this.selectedOdEdge = options.selectedOdEdge;
     this.isHoveringEditablePoint = false;
     if (this.preserveInfoPopupOnNextRender) {
       this.preserveInfoPopupOnNextRender = false;
@@ -321,11 +376,20 @@ export class MapView {
     this.resetMarqueeSelection();
     this.resetLassoSelection();
     this.layerGroup.clearLayers();
+    this.bundleCanvasLayer.setBundles(this.latestBundles);
+    const analysisSettings = options.analysisSettings;
+    const activeColormap = analysisSettings ? getColormapById(analysisSettings.colormapId) : undefined;
+    this.bundleCanvasLayer.setAnalysisContext({
+      mode: analysisSettings?.mode ?? "off",
+      colormapColors: activeColormap?.colors ?? [],
+      odMetric: analysisSettings?.odMetric ?? "weight",
+      selectedOdEdge: options.selectedOdEdge
+    });
 
     const selectedPointIdSet = new Set(options.selectedPointIds ?? []);
     const velocitySettings = options.velocitySettings;
     const renderVelocity = velocitySettings?.enabled ?? false;
-    const colormap = velocitySettings ? getColormapById(velocitySettings.colormapId) : undefined;
+    const colormap = velocitySettings ? activeColormap : undefined;
     const velocityScaleTracks =
       velocitySettings?.scaleMode === "auto" ? tracks.filter((track) => track.visible) : tracks;
     const velocityScaleInfo =
@@ -462,14 +526,38 @@ export class MapView {
       });
     }
 
-    if (options.fitToTrackIds && options.fitToTrackIds.length > 0) {
+    if (
+      options.fitToTrackIds &&
+      options.fitToTrackIds.length > 0 &&
+      options.fitToBundleIds &&
+      options.fitToBundleIds.length > 0
+    ) {
+      this.fitTracksAndBundlesByIds(tracks, options.fitToTrackIds, this.latestBundles, options.fitToBundleIds);
+    } else if (options.fitToTrackIds && options.fitToTrackIds.length > 0) {
       this.fitTracksByIds(tracks, options.fitToTrackIds);
+    } else if (options.fitToBundleIds && options.fitToBundleIds.length > 0) {
+      this.fitBundlesByIds(this.latestBundles, options.fitToBundleIds);
     } else if (options.fitToVisible) {
-      this.fitVisibleTracks(tracks);
+      this.fitVisibleContent(tracks, this.latestBundles);
     }
 
     this.setRankedMetricSegments(rankedSegments);
-    this.updateVelocityLegend(renderVelocity, velocitySettings, colormap, velocityScaleInfo);
+    this.setRankedOdEdges(
+      this.collectRankedOdEdges(analysisSettings?.odMetric ?? "weight"),
+      options.selectedOdEdge
+    );
+    this.updateAnalysisLegend(
+      analysisSettings ?? {
+        mode: "off",
+        colormapId: "",
+        velocityScaleMode: "auto",
+        velocityFixedMax: 0,
+        odMetric: "weight"
+      },
+      velocitySettings,
+      colormap,
+      velocityScaleInfo
+    );
     this.updateCursorClass();
   }
 
@@ -486,6 +574,15 @@ export class MapView {
     );
   }
 
+  focusBundle(bundleId: string): void {
+    const bounds = this.bundleCanvasLayer.getBoundsForBundle(bundleId);
+    if (!bounds || !bounds.isValid()) {
+      return;
+    }
+
+    this.map.fitBounds(bounds.pad(0.15));
+  }
+
   fitVisibleTracks(tracks: Track[]): void {
     const visibleTracks = tracks.filter((track) => track.visible && track.points.length > 0);
 
@@ -499,6 +596,28 @@ export class MapView {
       ),
       0.15
     );
+  }
+
+  fitVisibleContent(tracks: Track[], bundles: LoadedTrajectoryBundle[]): void {
+    const visibleTrackPoints = tracks
+      .filter((track) => track.visible && track.points.length > 0)
+      .flatMap((track) => track.points.map((point) => [point.lat, point.lng] as L.LatLngTuple));
+
+    const bundleBounds = this.bundleCanvasLayer.getBoundsForVisibleBundles();
+    if (visibleTrackPoints.length === 0 && !bundleBounds) {
+      return;
+    }
+
+    if (visibleTrackPoints.length > 0) {
+      const pointBounds = L.latLngBounds(visibleTrackPoints);
+      if (bundleBounds) {
+        pointBounds.extend(bundleBounds);
+      }
+      this.map.fitBounds(pointBounds.pad(0.15));
+      return;
+    }
+
+    this.map.fitBounds(bundleBounds!.pad(0.15));
   }
 
   fitTracksByIds(tracks: Track[], trackIds: string[]): void {
@@ -521,6 +640,59 @@ export class MapView {
       ),
       0.15
     );
+  }
+
+  fitBundlesByIds(bundles: LoadedTrajectoryBundle[], bundleIds: string[]): void {
+    const targetIds = new Set(bundleIds);
+    let mergedBounds: L.LatLngBounds | null = null;
+
+    for (const bundle of bundles) {
+      if (!targetIds.has(bundle.id)) {
+        continue;
+      }
+
+      const bounds = this.bundleCanvasLayer.getBoundsForBundle(bundle.id);
+      if (!bounds) {
+        continue;
+      }
+
+      mergedBounds = mergedBounds ? mergedBounds.extend(bounds) : bounds;
+    }
+
+    if (!mergedBounds || !mergedBounds.isValid()) {
+      return;
+    }
+
+    this.map.fitBounds(mergedBounds.pad(0.15));
+  }
+
+  fitTracksAndBundlesByIds(
+    tracks: Track[],
+    trackIds: string[],
+    bundles: LoadedTrajectoryBundle[],
+    bundleIds: string[]
+  ): void {
+    const trackIdSet = new Set(trackIds);
+    const trackPoints = tracks
+      .filter((track) => trackIdSet.has(track.id) && track.points.length > 0)
+      .flatMap((track) => track.points.map((point) => [point.lat, point.lng] as L.LatLngTuple));
+
+    let mergedBounds = trackPoints.length > 0 ? L.latLngBounds(trackPoints) : null;
+
+    for (const bundleId of bundleIds) {
+      const bundleBounds = this.bundleCanvasLayer.getBoundsForBundle(bundleId);
+      if (!bundleBounds) {
+        continue;
+      }
+
+      mergedBounds = mergedBounds ? mergedBounds.extend(bundleBounds) : bundleBounds;
+    }
+
+    if (!mergedBounds || !mergedBounds.isValid()) {
+      return;
+    }
+
+    this.map.fitBounds(mergedBounds.pad(0.15));
   }
 
   private fitBoundsForPoints(points: L.LatLngTuple[], pad: number): void {
@@ -774,14 +946,15 @@ export class MapView {
     };
   }
 
-  private updateVelocityLegend(
-    enabled: boolean,
-    settings: VelocityViewSettings | undefined,
+  private updateAnalysisLegend(
+    analysisSettings: AnalysisSettings,
+    velocitySettings: VelocityViewSettings | undefined,
     colormap: LegendColormap | undefined,
     velocityScaleInfo: SegmentColorScaleInfo | undefined
   ): void {
-    this.lastLegendEnabled = enabled;
-    this.lastLegendSettings = settings;
+    this.lastLegendEnabled = analysisSettings.mode !== "off";
+    this.lastAnalysisSettings = analysisSettings;
+    this.lastVelocitySettings = velocitySettings;
     this.lastLegendColormap = colormap;
     this.lastLegendScaleInfo = velocityScaleInfo;
 
@@ -789,13 +962,42 @@ export class MapView {
       return;
     }
 
-    if (!enabled || !settings || !colormap) {
-      if (this.legendResize) {
-        this.onLegendPointerUp(undefined, false);
-      }
-      this.velocityLegendElement.classList.add("is-hidden");
-      this.velocityLegendElement.innerHTML = "";
-      this.rankedMetricCursor = -1;
+    if (analysisSettings.mode === "off" || !colormap) {
+      this.hideAnalysisLegend();
+      return;
+    }
+
+    if (analysisSettings.mode === "od") {
+      this.renderOdAnalysisLegend(analysisSettings, colormap);
+      return;
+    }
+
+    this.renderTrackMetricAnalysisLegend(analysisSettings, velocitySettings, colormap, velocityScaleInfo);
+  }
+
+  private hideAnalysisLegend(): void {
+    if (!this.velocityLegendElement) {
+      return;
+    }
+
+    if (this.legendResize) {
+      this.onLegendPointerUp(undefined, false);
+    }
+
+    this.velocityLegendElement.classList.add("is-hidden");
+    this.velocityLegendElement.innerHTML = "";
+    this.rankedMetricCursor = -1;
+    this.rankedOdCursor = -1;
+  }
+
+  private renderTrackMetricAnalysisLegend(
+    analysisSettings: AnalysisSettings,
+    settings: VelocityViewSettings | undefined,
+    colormap: LegendColormap,
+    velocityScaleInfo: SegmentColorScaleInfo | undefined
+  ): void {
+    if (!this.velocityLegendElement || !settings) {
+      this.hideAnalysisLegend();
       return;
     }
 
@@ -803,7 +1005,11 @@ export class MapView {
     const unitLabel = velocityScaleInfo?.unitLabel ?? "";
     const metricLabel = velocityScaleInfo?.metricLabel ?? "Velocity";
     const gradient = this.buildLegendGradient(colormap.colors);
-    const histogramMarkup = this.buildLegendHistogramMarkup(colormap.colors, velocityScaleInfo);
+    const normalizedValues =
+      velocityScaleInfo && velocityScaleInfo.maxBaseValue > 0
+        ? this.rankedMetricSegments.map((segment) => normalizeVelocity(segment.baseValue, velocityScaleInfo))
+        : [];
+    const histogramMarkup = this.buildLegendHistogramMarkup(colormap.colors, normalizedValues);
     const axisModeControlMarkup = this.buildLegendAxisModeControlMarkup();
     const resizeEnabled = this.legendHistogramMode !== "hidden";
     const resizeHandleMarkup = resizeEnabled
@@ -812,8 +1018,8 @@ export class MapView {
         type="button"
         data-action="resize-legend"
         class="velocity-legend-resize-handle"
-        title="Drag top-left corner to resize legend"
-        aria-label="Resize legend"
+        title="Drag top-left corner to resize panel"
+        aria-label="Resize panel"
       ></button>
     `
       : "";
@@ -831,6 +1037,8 @@ export class MapView {
     }
     const currentRank = this.rankedMetricCursor >= 0 ? this.rankedMetricCursor + 1 : 0;
     const totalRanks = activeSegments.length;
+    const actionPrimaryLabel = analysisSettings.mode === "acceleration" ? "Top Peak" : "Top Peak";
+    const actionSecondaryLabel = analysisSettings.mode === "acceleration" ? "Next Peak" : "Next Peak";
 
     this.velocityLegendElement.classList.remove("is-hidden");
     this.velocityLegendElement.innerHTML = `
@@ -857,19 +1065,143 @@ export class MapView {
         <span class="velocity-legend-cycle-controls">
           <button
             type="button"
-            data-action="reset-top-segment"
+            data-action="reset-analysis-focus"
             class="velocity-legend-cycle-btn"
             ${totalRanks === 0 ? "disabled" : ""}
           >
-            Top Peak
+            ${actionPrimaryLabel}
           </button>
           <button
             type="button"
-            data-action="cycle-top-segment"
+            data-action="cycle-analysis-focus"
             class="velocity-legend-cycle-btn"
             ${totalRanks === 0 ? "disabled" : ""}
           >
-            Next Peak
+            ${actionSecondaryLabel}
+          </button>
+        </span>
+        <span class="velocity-legend-cycle-status">${currentRank}/${totalRanks}</span>
+      </div>
+    `;
+    this.velocityLegendElement.classList.toggle("is-resize-enabled", resizeEnabled);
+    this.applyLegendSizeStyles();
+    this.velocityLegendElement.classList.toggle("is-resizing", Boolean(this.legendResize));
+  }
+
+  private renderOdAnalysisLegend(
+    analysisSettings: AnalysisSettings,
+    colormap: LegendColormap
+  ): void {
+    if (!this.velocityLegendElement) {
+      return;
+    }
+
+    const activeEdges = this.rankedOdEdges;
+    if (this.rankedOdCursor >= activeEdges.length) {
+      this.rankedOdCursor = -1;
+    }
+
+    const metric = analysisSettings.odMetric;
+    const metricLabel = metric === "tripCount" ? "OD Trip Count" : "OD Weight";
+    const unitLabel = metric === "tripCount" ? "trips" : "weight";
+    const scaleMax = activeEdges.reduce(
+      (maxValue, edge) => Math.max(maxValue, metric === "tripCount" ? edge.tripCount : edge.weight),
+      0
+    );
+    const histogramMarkup = this.buildLegendHistogramMarkup(
+      colormap.colors,
+      scaleMax > 0
+        ? activeEdges.map((edge) =>
+            (metric === "tripCount" ? edge.tripCount : edge.weight) / scaleMax
+          )
+        : []
+    );
+    const axisModeControlMarkup = this.buildLegendAxisModeControlMarkup();
+    const gradient = this.buildLegendGradient(colormap.colors);
+    const resizeEnabled = this.legendHistogramMode !== "hidden";
+    const resizeHandleMarkup = resizeEnabled
+      ? `
+      <button
+        type="button"
+        data-action="resize-legend"
+        class="velocity-legend-resize-handle"
+        title="Drag top-left corner to resize panel"
+        aria-label="Resize panel"
+      ></button>
+    `
+      : "";
+    const selectedEdge = this.getCurrentRankedOdEdge();
+    const secondaryMetric: OdMetric = metric === "tripCount" ? "weight" : "tripCount";
+    const currentRank = this.rankedOdCursor >= 0 ? this.rankedOdCursor + 1 : 0;
+    const totalRanks = activeEdges.length;
+    const selectedName = selectedEdge ? this.escapeHtml(selectedEdge.trajectoryName) : "No OD flow selected.";
+    const primaryValue = selectedEdge
+      ? `${this.getOdMetricLabel(metric)}: <strong>${this.formatOdMetricValue(
+          metric === "tripCount" ? selectedEdge.tripCount : selectedEdge.weight,
+          metric
+        )}</strong>`
+      : `${this.getOdMetricLabel(metric)}: <strong>n/a</strong>`;
+    const secondaryValue = selectedEdge
+      ? `${this.getOdMetricLabel(secondaryMetric)}: ${this.formatOdMetricValue(
+          secondaryMetric === "tripCount" ? selectedEdge.tripCount : selectedEdge.weight,
+          secondaryMetric
+        )}`
+      : `${this.getOdMetricLabel(secondaryMetric)}: n/a`;
+    const availability =
+      scaleMax <= 0
+        ? "No visible OD flows with usable metrics."
+        : `Current max: ${this.formatOdMetricValue(scaleMax, metric)}`;
+
+    this.velocityLegendElement.classList.remove("is-hidden");
+    this.velocityLegendElement.innerHTML = `
+      ${resizeHandleMarkup}
+      <div class="velocity-legend-header">
+        <div class="velocity-legend-title">${metricLabel}</div>
+        ${axisModeControlMarkup}
+      </div>
+      ${histogramMarkup}
+      <button
+        type="button"
+        data-action="cycle-legend-colormap"
+        class="velocity-legend-bar velocity-legend-colormap-btn"
+        style="--legend-gradient: ${gradient};"
+        title="Colormap: ${this.escapeHtml(colormap.name)}. Click to cycle."
+        aria-label="Colormap: ${this.escapeHtml(colormap.name)}. Click to cycle."
+      ></button>
+      <div class="velocity-legend-scale"><span>0</span><span>${this.formatOdMetricValue(
+        scaleMax,
+        metric
+      )}</span></div>
+      <div class="velocity-legend-note">Auto scale across visible OD flows.</div>
+      <div class="velocity-legend-note">${availability}</div>
+      <div class="velocity-legend-note"><strong>${selectedName}</strong></div>
+      <div class="velocity-legend-note">${primaryValue}</div>
+      <div class="velocity-legend-note">${secondaryValue}</div>
+      <div class="velocity-legend-actions">
+        <span class="velocity-legend-cycle-controls">
+          <button
+            type="button"
+            data-action="reset-analysis-focus"
+            class="velocity-legend-cycle-btn"
+            ${totalRanks === 0 ? "disabled" : ""}
+          >
+            Top Flow
+          </button>
+          <button
+            type="button"
+            data-action="cycle-analysis-focus"
+            class="velocity-legend-cycle-btn"
+            ${totalRanks === 0 ? "disabled" : ""}
+          >
+            Next Flow
+          </button>
+          <button
+            type="button"
+            data-action="extract-selected-od"
+            class="velocity-legend-cycle-btn"
+            ${selectedEdge ? "" : "disabled"}
+          >
+            Extract Selected
           </button>
         </span>
         <span class="velocity-legend-cycle-status">${currentRank}/${totalRanks}</span>
@@ -962,7 +1294,7 @@ export class MapView {
 
   private buildLegendHistogramMarkup(
     colormapColors: { r: number; g: number; b: number }[],
-    velocityScaleInfo: SegmentColorScaleInfo | undefined
+    normalizedValues: number[]
   ): string {
     const isPrecisionMode = this.legendHistogramMode === "precision";
     const binCount = this.getHistogramBinCount(isPrecisionMode);
@@ -971,9 +1303,8 @@ export class MapView {
     const barRadiusStyle = isPrecisionMode ? "0" : "0.08rem 0.08rem 0 0";
     const counts = new Array<number>(binCount).fill(0);
 
-    if (velocityScaleInfo && velocityScaleInfo.maxBaseValue > 0) {
-      for (const segment of this.rankedMetricSegments) {
-        const normalizedValue = normalizeVelocity(segment.baseValue, velocityScaleInfo);
+    if (normalizedValues.length > 0) {
+      for (const normalizedValue of normalizedValues) {
         const transformedValue = this.transformHistogramX(normalizedValue);
         const bucketIndex = Math.min(binCount - 1, Math.floor(transformedValue * binCount));
         counts[bucketIndex] += 1;
@@ -1075,6 +1406,10 @@ export class MapView {
     return `${segment.metric}:${segment.trackId}:${startId}:${endId}`;
   }
 
+  private getRankedOdEdgeKey(edge: RankedOdEdge): string {
+    return `${edge.bundleId}:${edge.trajectoryId}`;
+  }
+
   private getActiveRankedMetricSegments(): RankedMetricSegment[] {
     if (!this.activeEditingTrackId) {
       return this.rankedMetricSegments;
@@ -1121,6 +1456,101 @@ export class MapView {
     }
 
     this.rankedMetricCursor = -1;
+    this.updateLegendCycleStatus();
+  }
+
+  private collectRankedOdEdges(metric: OdMetric): RankedOdEdge[] {
+    const rankedEdges: RankedOdEdge[] = [];
+
+    for (const bundle of this.latestBundles) {
+      if (!bundle.visible || !isOdEdgeBundle(bundle)) {
+        continue;
+      }
+
+      for (const trajectory of bundle.bundle.renderTrajectories) {
+        if (trajectory.path.length < 2) {
+          continue;
+        }
+
+        const weight = getOdEdgeMetricValue(bundle.bundle, trajectory.id, "weight") ?? 0;
+        const tripCount = getOdEdgeMetricValue(bundle.bundle, trajectory.id, "tripCount") ?? 0;
+        const metricValue = metric === "tripCount" ? tripCount : weight;
+        if (!(metricValue > 0)) {
+          continue;
+        }
+
+        const reference = bundle.bundle.trajectoryRefById.get(trajectory.id);
+        rankedEdges.push({
+          bundleId: bundle.id,
+          bundleName: bundle.name,
+          trajectoryId: trajectory.id,
+          trajectoryName: reference?.name ?? trajectory.id,
+          weight,
+          tripCount,
+          latLngs: [
+            trajectory.path[0],
+            trajectory.path[trajectory.path.length - 1]
+          ]
+        });
+      }
+    }
+
+    return rankedEdges.sort((left, right) => {
+      const leftValue = metric === "tripCount" ? left.tripCount : left.weight;
+      const rightValue = metric === "tripCount" ? right.tripCount : right.weight;
+      if (rightValue !== leftValue) {
+        return rightValue - leftValue;
+      }
+
+      return this.getRankedOdEdgeKey(left).localeCompare(this.getRankedOdEdgeKey(right));
+    });
+  }
+
+  private setRankedOdEdges(
+    edges: RankedOdEdge[],
+    selectedEdge: { bundleId: string; trajectoryId: string } | undefined
+  ): void {
+    const previousEdge =
+      this.rankedOdCursor >= 0 && this.rankedOdCursor < this.rankedOdEdges.length
+        ? this.rankedOdEdges[this.rankedOdCursor]
+        : undefined;
+    const previousKey = previousEdge ? this.getRankedOdEdgeKey(previousEdge) : undefined;
+    const selectedKey = selectedEdge ? `${selectedEdge.bundleId}:${selectedEdge.trajectoryId}` : undefined;
+
+    this.rankedOdEdges = edges;
+
+    if (this.rankedOdEdges.length === 0) {
+      this.rankedOdCursor = -1;
+      this.updateLegendCycleStatus();
+      return;
+    }
+
+    if (selectedKey) {
+      const selectedIndex = this.rankedOdEdges.findIndex(
+        (edge) => this.getRankedOdEdgeKey(edge) === selectedKey
+      );
+      this.rankedOdCursor = selectedIndex >= 0 ? selectedIndex : -1;
+      this.updateLegendCycleStatus();
+      return;
+    }
+
+    if (previousKey) {
+      const previousIndex = this.rankedOdEdges.findIndex(
+        (edge) => this.getRankedOdEdgeKey(edge) === previousKey
+      );
+      if (previousIndex >= 0) {
+        this.rankedOdCursor = previousIndex;
+        this.updateLegendCycleStatus();
+        return;
+      }
+    }
+
+    if (this.rankedOdCursor >= 0) {
+      this.rankedOdCursor = Math.min(this.rankedOdCursor, this.rankedOdEdges.length - 1);
+    } else {
+      this.rankedOdCursor = -1;
+    }
+
     this.updateLegendCycleStatus();
   }
 
@@ -1304,7 +1734,7 @@ export class MapView {
     );
     if (colormapCycleButton) {
       event.preventDefault();
-      this.callbacks.onCycleVelocityColormap?.();
+      this.callbacks.onCycleAnalysisColormap?.();
       return;
     }
 
@@ -1342,16 +1772,29 @@ export class MapView {
       return;
     }
 
-    const button = target.closest<HTMLButtonElement>('button[data-action="cycle-top-segment"]');
+    const extractButton = target.closest<HTMLButtonElement>('button[data-action="extract-selected-od"]');
+    if (extractButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.suppressNextMapClick = true;
+      this.callbacks.onExtractSelectedOdEdge?.();
+      return;
+    }
+
+    const button = target.closest<HTMLButtonElement>('button[data-action="cycle-analysis-focus"]');
     if (button) {
       event.preventDefault();
       event.stopPropagation();
       this.suppressNextMapClick = true;
-      this.focusNextTopSegment();
+      if (this.lastAnalysisSettings?.mode === "od") {
+        this.focusNextOdEdge();
+      } else {
+        this.focusNextTopSegment();
+      }
       return;
     }
 
-    const resetButton = target.closest<HTMLButtonElement>('button[data-action="reset-top-segment"]');
+    const resetButton = target.closest<HTMLButtonElement>('button[data-action="reset-analysis-focus"]');
     if (!resetButton) {
       return;
     }
@@ -1359,8 +1802,72 @@ export class MapView {
     event.preventDefault();
     event.stopPropagation();
     this.suppressNextMapClick = true;
-    this.focusTopMetricSegment();
+    if (this.lastAnalysisSettings?.mode === "od") {
+      this.focusTopOdEdge();
+    } else {
+      this.focusTopMetricSegment();
+    }
   };
+
+  private focusNextOdEdge(): void {
+    if (this.rankedOdEdges.length === 0) {
+      return;
+    }
+
+    this.rankedOdCursor = (this.rankedOdCursor + 1) % this.rankedOdEdges.length;
+    const edge = this.rankedOdEdges[this.rankedOdCursor];
+    this.callbacks.onOdEdgeSelected?.(edge.bundleId, edge.trajectoryId);
+    this.focusRankedOdEdge(edge);
+    this.focusMapContainer();
+    this.updateLegendCycleStatus();
+  }
+
+  private focusTopOdEdge(): void {
+    if (this.rankedOdEdges.length === 0) {
+      return;
+    }
+
+    this.rankedOdCursor = -1;
+    this.focusNextOdEdge();
+  }
+
+  private getCurrentRankedOdEdge(): RankedOdEdge | undefined {
+    if (this.rankedOdCursor < 0 || this.rankedOdCursor >= this.rankedOdEdges.length) {
+      return undefined;
+    }
+
+    return this.rankedOdEdges[this.rankedOdCursor];
+  }
+
+  private focusRankedOdEdge(edge: RankedOdEdge): void {
+    const bounds = L.latLngBounds(edge.latLngs);
+    if (!bounds.isValid()) {
+      return;
+    }
+
+    this.map.fitBounds(bounds.pad(0.25), {
+      maxZoom: 13
+    });
+  }
+
+  private getOdMetricLabel(metric: OdMetric): string {
+    return metric === "tripCount" ? "Trip Count" : "Weight";
+  }
+
+  private formatOdMetricValue(value: number, metric: OdMetric): string {
+    if (!Number.isFinite(value)) {
+      return "0";
+    }
+
+    if (metric === "tripCount") {
+      return Math.round(value).toLocaleString();
+    }
+
+    return value.toLocaleString(undefined, {
+      minimumFractionDigits: value < 100 ? 1 : 0,
+      maximumFractionDigits: 1
+    });
+  }
 
   private onPopupClose = (event: L.PopupEvent): void => {
     if (this.activeInfoPopup && event.popup === this.activeInfoPopup) {
@@ -1548,20 +2055,45 @@ export class MapView {
     if (!this.velocityLegendElement) {
       return;
     }
+    const status = this.velocityLegendElement.querySelector<HTMLElement>(".velocity-legend-cycle-status");
+    if (this.lastAnalysisSettings?.mode === "od") {
+      if (this.rankedOdCursor >= this.rankedOdEdges.length) {
+        this.rankedOdCursor = -1;
+      }
+
+      if (status) {
+        const currentRank = this.rankedOdCursor >= 0 ? this.rankedOdCursor + 1 : 0;
+        status.textContent = `${currentRank}/${this.rankedOdEdges.length}`;
+      }
+
+      const cycleButtons = this.velocityLegendElement.querySelectorAll<HTMLButtonElement>(
+        'button[data-action="cycle-analysis-focus"], button[data-action="reset-analysis-focus"]'
+      );
+      for (const button of cycleButtons) {
+        button.disabled = this.rankedOdEdges.length === 0;
+      }
+
+      const extractButton = this.velocityLegendElement.querySelector<HTMLButtonElement>(
+        'button[data-action="extract-selected-od"]'
+      );
+      if (extractButton) {
+        extractButton.disabled = !this.getCurrentRankedOdEdge();
+      }
+      return;
+    }
 
     const activeSegments = this.getActiveRankedMetricSegments();
     if (this.rankedMetricCursor >= activeSegments.length) {
       this.rankedMetricCursor = -1;
     }
 
-    const status = this.velocityLegendElement.querySelector<HTMLElement>(".velocity-legend-cycle-status");
     if (status) {
       const currentRank = this.rankedMetricCursor >= 0 ? this.rankedMetricCursor + 1 : 0;
       status.textContent = `${currentRank}/${activeSegments.length}`;
     }
 
     const buttons = this.velocityLegendElement.querySelectorAll<HTMLButtonElement>(
-      'button[data-action="cycle-top-segment"], button[data-action="reset-top-segment"]'
+      'button[data-action="cycle-analysis-focus"], button[data-action="reset-analysis-focus"]'
     );
     for (const button of buttons) {
       button.disabled = activeSegments.length === 0;
@@ -1569,9 +2101,13 @@ export class MapView {
   }
 
   private rerenderLegendFromLastContext(): void {
-    this.updateVelocityLegend(
-      this.lastLegendEnabled,
-      this.lastLegendSettings,
+    if (!this.lastAnalysisSettings) {
+      return;
+    }
+
+    this.updateAnalysisLegend(
+      this.lastAnalysisSettings,
+      this.lastVelocitySettings,
       this.lastLegendColormap,
       this.lastLegendScaleInfo
     );

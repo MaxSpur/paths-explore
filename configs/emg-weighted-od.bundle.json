@@ -1,0 +1,20 @@
+{
+  "bundle_id": "emg-weighted-od-sample",
+  "bundle_name": "EMG Weighted OD Sample",
+  "simplification_tolerance_meters": 25.0,
+  "inputs": [
+    {
+      "kind": "weighted_od_graph",
+      "path": "data/emg-base-des-deplacements.parquet",
+      "origin_code_column": "code_insee_o",
+      "origin_name_column": "com_o",
+      "destination_code_column": "code_insee_d",
+      "destination_name_column": "com_d",
+      "centroid_column": "centroid_o",
+      "weight_column": "poids_jour",
+      "edge_limit": 2500,
+      "edge_sampling_mode": "top_weight",
+      "exclude_self_loops": true
+    }
+  ]
+}

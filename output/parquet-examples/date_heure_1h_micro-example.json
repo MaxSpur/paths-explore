@@ -1,0 +1,13 @@
+{
+  "record_type": "od_time_aggregate_row",
+  "sample_row": {
+    "date": "2024-11-04",
+    "tranchehoraire": "01:00-07:00",
+    "origine": 700001,
+    "destination": 701241,
+    "typeflux": "interne",
+    "type": "National",
+    "volume": 29,
+    "iq1": 78.0
+  }
+}

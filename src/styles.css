@@ -604,6 +604,16 @@ input {
   gap: 0.35rem;
 }
 
+.bundle-toggle-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.bundle-meta {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .track-toggle-btn {
   border: 1px solid var(--border);
   background: #ffffff;
@@ -706,6 +716,10 @@ input {
   position: relative;
   width: 100%;
   height: 100%;
+}
+
+.bundle-canvas-layer {
+  display: block;
 }
 
 .map-view.is-editing-cursor,

@@ -2,6 +2,8 @@ export type SupportedFormat = "gpx" | "kml" | "geojson" | "csv";
 export type EditInteractionMode = "move" | "marquee" | "lasso" | "info";
 export type VelocityScaleMode = "auto" | "fixed";
 export type SegmentColorMetric = "velocity" | "acceleration";
+export type AnalysisMode = "off" | SegmentColorMetric | "od";
+export type OdMetric = "weight" | "tripCount";
 export type MapBaseStyle =
   | "osm-standard"
   | "carto-light"
@@ -16,6 +18,14 @@ export interface VelocityViewSettings {
   scaleMode: VelocityScaleMode;
   fixedMax: number;
   colormapId: string;
+}
+
+export interface AnalysisSettings {
+  mode: AnalysisMode;
+  colormapId: string;
+  velocityScaleMode: VelocityScaleMode;
+  velocityFixedMax: number;
+  odMetric: OdMetric;
 }
 
 export interface MapViewSettings {
@@ -66,5 +76,6 @@ export interface ImportIssue {
 
 export interface ImportSummary {
   importedTrackCount: number;
+  importedBundleCount: number;
   issues: ImportIssue[];
 }

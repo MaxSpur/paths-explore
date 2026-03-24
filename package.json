@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tmcw/togeojson": "^7.1.2",
+    "fflate": "^0.8.2",
     "leaflet": "^1.9.4"
   },
   "devDependencies": {

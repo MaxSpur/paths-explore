@@ -1,20 +1,22 @@
 import type {
+  AnalysisMode,
+  AnalysisSettings,
   AppState,
   EditInteractionMode,
   ImportSummary,
   MapBaseStyle,
   MapViewSettings,
-  SegmentColorMetric,
+  OdMetric,
   VelocityScaleMode,
-  VelocityViewSettings
 } from "../model/types";
+import { isOdEdgeBundle, type BundleState } from "../model/bundles";
 import { COLORMAPS, DEFAULT_COLORMAP_ID } from "../colormaps";
 
-const SIDEBAR_SECTION_IDS = ["import", "edit", "map", "velocity", "tracks"] as const;
+const SIDEBAR_SECTION_IDS = ["import", "bundles", "edit", "map", "velocity", "tracks"] as const;
 type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 const SIDEBAR_LAYOUT_STORAGE_KEY = "path-segments-sidebar-layout-v1";
 const TRACK_COLLAPSE_STORAGE_KEY = "path-segments-collapsed-tracks-v1";
-type VelocityHeaderMode = "off" | SegmentColorMetric;
+type AnalysisHeaderMode = AnalysisMode;
 const MAP_STYLE_OPTIONS: Array<{ id: MapBaseStyle; label: string }> = [
   { id: "osm-standard", label: "OSM Standard" },
   { id: "carto-light", label: "CARTO Light" },
@@ -33,11 +35,11 @@ function isSidebarSectionId(value: string): value is SidebarSectionId {
   return (SIDEBAR_SECTION_IDS as readonly string[]).includes(value);
 }
 
-function getVelocityHeaderMode(settings: VelocityViewSettings): VelocityHeaderMode {
-  return settings.enabled ? settings.metric : "off";
+function getAnalysisHeaderMode(settings: AnalysisSettings): AnalysisHeaderMode {
+  return settings.mode;
 }
 
-function getVelocityHeaderGlyph(mode: VelocityHeaderMode): string {
+function getAnalysisHeaderGlyph(mode: AnalysisHeaderMode): string {
   if (mode === "velocity") {
     return "🅥";
   }
@@ -46,10 +48,14 @@ function getVelocityHeaderGlyph(mode: VelocityHeaderMode): string {
     return "🅐";
   }
 
+  if (mode === "od") {
+    return "OD";
+  }
+
   return "Ⓞ";
 }
 
-function getVelocityHeaderLabel(mode: VelocityHeaderMode): string {
+function getAnalysisHeaderLabel(mode: AnalysisHeaderMode): string {
   if (mode === "velocity") {
     return "Velocity";
   }
@@ -58,25 +64,35 @@ function getVelocityHeaderLabel(mode: VelocityHeaderMode): string {
     return "Acceleration";
   }
 
+  if (mode === "od") {
+    return "OD";
+  }
+
   return "Off";
 }
 
 interface SidebarCallbacks {
   onImportFiles: (files: File[] | FileList) => Promise<void>;
   onToggleVisibility: (trackId: string, visible: boolean) => void;
+  onToggleBundleVisibility: (bundleId: string, visible: boolean) => void;
+  onToggleBundleOverlays: (bundleId: string, overlaysVisible: boolean) => void;
+  onToggleBundleExtraction: (bundleId: string, extractionEnabled: boolean) => void;
   onTogglePoints: (trackId: string, show: boolean) => void;
   onToggleSegments: (trackId: string, show: boolean) => void;
   onMoveTrackUp: (trackId: string) => void;
   onMoveTrackDown: (trackId: string) => void;
   onFocusTrack: (trackId: string) => void;
+  onFocusBundle: (bundleId: string) => void;
   onExportTrack: (trackId: string) => void;
   onDeleteTrack: (trackId: string) => void;
+  onDeleteBundle: (bundleId: string) => void;
   onToggleEdit: (trackId: string) => void;
   onEditModeChange: (mode: EditInteractionMode) => void;
-  onVelocityModeChange: (mode: "off" | SegmentColorMetric) => void;
-  onVelocityScaleModeChange: (mode: VelocityScaleMode) => void;
-  onVelocityFixedMaxChange: (maxValue: number) => void;
-  onVelocityColormapChange: (colormapId: string) => void;
+  onAnalysisModeChange: (mode: AnalysisMode) => void;
+  onAnalysisVelocityScaleModeChange: (mode: VelocityScaleMode) => void;
+  onAnalysisVelocityFixedMaxChange: (maxValue: number) => void;
+  onAnalysisColormapChange: (colormapId: string) => void;
+  onAnalysisOdMetricChange: (metric: OdMetric) => void;
   onMapBaseStyleChange: (baseStyle: MapBaseStyle) => void;
   onMapDarkenChange: (darkenPercent: number) => void;
   onMapDesaturateChange: (desaturatePercent: number) => void;
@@ -86,20 +102,22 @@ export class SidebarView {
   private root: HTMLElement;
   private callbacks: SidebarCallbacks;
   private fileInput: HTMLInputElement;
+  private bundleList: HTMLElement;
   private trackList: HTMLElement;
   private summaryStatus: HTMLElement;
   private collapsedTrackIds = new Set<string>();
   private sectionOrder: SidebarSectionId[] = [...SIDEBAR_SECTION_IDS];
   private collapsedSectionIds = new Set<SidebarSectionId>();
+  private lastBundleState: BundleState = { bundles: [] };
   private lastState: AppState = { tracks: [], selectedPointIds: [] };
   private lastSummary?: ImportSummary;
   private lastEditMode: EditInteractionMode = "move";
-  private lastVelocitySettings: VelocityViewSettings = {
-    enabled: false,
-    metric: "velocity",
-    scaleMode: "auto",
-    fixedMax: 60,
-    colormapId: DEFAULT_COLORMAP_ID
+  private lastAnalysisSettings: AnalysisSettings = {
+    mode: "off",
+    colormapId: DEFAULT_COLORMAP_ID,
+    velocityScaleMode: "auto",
+    velocityFixedMax: 60,
+    odMetric: "weight"
   };
   private lastVelocityMaxDisplayValue = 0;
   private lastMapViewSettings: MapViewSettings = {
@@ -121,7 +139,7 @@ export class SidebarView {
     this.root.innerHTML = `
       <header class="panel-header">
         <h1>Path Segments</h1>
-        <p>Load GPX, KML, GeoJSON, CSV, and ZIP path files.<br/>Drag here to import.</p>
+        <p>Load GPX/KML/GeoJSON/CSV paths or generated parquet bundles.<br/>Drag here to import.</p>
       </header>
 
       <section class="panel-section sidebar-section" data-section-id="import">
@@ -131,9 +149,19 @@ export class SidebarView {
         </div>
         <div class="panel-section-content">
           <label class="import-label" for="track-file-input">Import files</label>
-          <input id="track-file-input" class="file-input" type="file" multiple accept=".gpx,.kml,.geojson,.json,.csv,.zip" />
+          <input id="track-file-input" class="file-input" type="file" multiple accept=".gpx,.kml,.geojson,.json,.csv,.zip,.psbundle.zip" />
           <p class="import-hint">Tip: drag and drop files anywhere on the page.</p>
-          <p id="summary-status" class="status-text">Loaded 0 tracks. No imports yet.</p>
+          <p id="summary-status" class="status-text">Loaded 0 tracks and 0 bundles. No imports yet.</p>
+        </div>
+      </section>
+
+      <section class="panel-section panel-bundles sidebar-section" data-section-id="bundles">
+        <div class="panel-section-header">
+          <h2>Bundles</h2>
+          ${this.buildSectionControls("bundles")}
+        </div>
+        <div class="panel-section-content">
+          <div id="bundle-list" class="track-list"></div>
         </div>
       </section>
 
@@ -214,33 +242,34 @@ export class SidebarView {
 
       <section class="panel-section panel-velocity sidebar-section" data-section-id="velocity">
         <div class="panel-section-header">
-          <h2>Velocity</h2>
+          <h2>Analysis</h2>
           ${this.buildSectionControls("velocity")}
         </div>
         <div class="panel-section-content">
-          <div class="velocity-mode-row segmented-control" role="group" aria-label="Segment coloring mode">
-            <button data-action="velocity-mode" data-mode="off" type="button" class="segmented-btn velocity-mode-btn">Off</button>
-            <button data-action="velocity-mode" data-mode="velocity" type="button" class="segmented-btn velocity-mode-btn">Velocity</button>
-            <button data-action="velocity-mode" data-mode="acceleration" type="button" class="segmented-btn velocity-mode-btn">Acceleration</button>
+          <div class="velocity-mode-row segmented-control" role="group" aria-label="Analysis mode">
+            <button data-action="analysis-mode" data-mode="off" type="button" class="segmented-btn velocity-mode-btn">Off</button>
+            <button data-action="analysis-mode" data-mode="velocity" type="button" class="segmented-btn velocity-mode-btn">Velocity</button>
+            <button data-action="analysis-mode" data-mode="acceleration" type="button" class="segmented-btn velocity-mode-btn">Acceleration</button>
+            <button data-action="analysis-mode" data-mode="od" type="button" class="segmented-btn velocity-mode-btn">OD</button>
           </div>
           <div class="velocity-controls">
-            <label class="velocity-field">
+            <label class="velocity-field" id="analysis-velocity-scale-field">
               <span>Scale</span>
-              <div class="segmented-control velocity-scale-row" role="group" aria-label="Scale mode">
-                <button data-action="velocity-scale" data-scale="auto" type="button" class="segmented-btn velocity-scale-btn">
+              <div class="segmented-control velocity-scale-row" role="group" aria-label="Velocity scale mode">
+                <button data-action="analysis-velocity-scale" data-scale="auto" type="button" class="segmented-btn velocity-scale-btn">
                   Auto
                 </button>
-                <button data-action="velocity-scale" data-scale="fixed" type="button" class="segmented-btn velocity-scale-btn">
+                <button data-action="analysis-velocity-scale" data-scale="fixed" type="button" class="segmented-btn velocity-scale-btn">
                   Fixed
                 </button>
               </div>
             </label>
-            <label class="velocity-field">
-              <span id="velocity-max-label">Max (km/h)</span>
+            <label class="velocity-field" id="analysis-velocity-max-field">
+              <span id="analysis-velocity-max-label">Max (km/h)</span>
               <div class="velocity-max-row">
                 <input
                   class="velocity-max-input"
-                  data-action="velocity-max"
+                  data-action="analysis-velocity-max"
                   type="number"
                   min="0"
                   max="350"
@@ -249,7 +278,7 @@ export class SidebarView {
                 />
                 <input
                   class="velocity-max-slider"
-                  data-action="velocity-max-slider"
+                  data-action="analysis-velocity-max-slider"
                   type="range"
                   min="0"
                   max="350"
@@ -260,12 +289,23 @@ export class SidebarView {
             </label>
             <label class="velocity-field">
               <span>Colormap</span>
-              <select data-action="velocity-colormap">
+              <select data-action="analysis-colormap">
                 ${colormapOptions}
               </select>
             </label>
+            <label class="velocity-field" id="analysis-od-metric-field" hidden>
+              <span>OD Metric</span>
+              <div class="segmented-control velocity-scale-row" role="group" aria-label="OD metric">
+                <button data-action="analysis-od-metric" data-od-metric="weight" type="button" class="segmented-btn velocity-scale-btn">
+                  Weight
+                </button>
+                <button data-action="analysis-od-metric" data-od-metric="tripCount" type="button" class="segmented-btn velocity-scale-btn">
+                  Trip Count
+                </button>
+              </div>
+            </label>
           </div>
-          <p class="velocity-meta" id="velocity-meta">Auto max: - km/h.</p>
+          <p class="velocity-meta" id="analysis-meta">Analysis is off.</p>
         </div>
       </section>
 
@@ -287,6 +327,7 @@ export class SidebarView {
     `;
 
     this.fileInput = this.root.querySelector("#track-file-input") as HTMLInputElement;
+    this.bundleList = this.root.querySelector("#bundle-list") as HTMLElement;
     this.trackList = this.root.querySelector("#track-list") as HTMLElement;
     this.summaryStatus = this.root.querySelector("#summary-status") as HTMLElement;
 
@@ -303,29 +344,119 @@ export class SidebarView {
 
   render(
     state: AppState,
+    bundleState: BundleState,
     summary: ImportSummary | undefined,
+    importStatusMessage: string | undefined,
     editMode: EditInteractionMode,
-    velocitySettings: VelocityViewSettings,
+    analysisSettings: AnalysisSettings,
     velocityMaxDisplayValue: number,
     mapViewSettings: MapViewSettings
   ): void {
     this.lastState = state;
+    this.lastBundleState = bundleState;
     this.lastSummary = summary;
     this.lastEditMode = editMode;
-    this.lastVelocitySettings = velocitySettings;
+    this.lastAnalysisSettings = analysisSettings;
     this.lastVelocityMaxDisplayValue = velocityMaxDisplayValue;
     this.lastMapViewSettings = mapViewSettings;
 
     this.pruneCollapsedTrackIds(state);
     this.syncEditModeControls(editMode);
     this.syncMapControls(mapViewSettings);
-    this.syncVelocityControls(velocitySettings, velocityMaxDisplayValue);
+    this.syncAnalysisControls(analysisSettings, velocityMaxDisplayValue);
     this.applySectionLayout();
 
-    const importMessage = summary ? this.buildSummaryMessage(summary) : "No imports yet.";
+    const importMessage = importStatusMessage ?? (summary ? this.buildSummaryMessage(summary) : "No imports yet.");
     this.summaryStatus.textContent = `Loaded ${state.tracks.length} track${state.tracks.length === 1 ? "" : "s"
-      }. ${importMessage}`;
-    this.summaryStatus.classList.toggle("has-error", summary ? summary.issues.length > 0 : false);
+      } and ${bundleState.bundles.length} bundle${bundleState.bundles.length === 1 ? "" : "s"}. ${importMessage}`;
+    this.summaryStatus.classList.toggle(
+      "has-error",
+      !importStatusMessage && (summary ? summary.issues.length > 0 : false)
+    );
+
+    if (bundleState.bundles.length === 0) {
+      this.bundleList.innerHTML = '<p class="empty-message">No bundles loaded.</p>';
+    } else {
+      this.bundleList.innerHTML = bundleState.bundles
+        .map((bundle) => {
+          const isOdBundle = isOdEdgeBundle(bundle.bundle);
+          const visualState: "hidden" | "visible" = bundle.visible ? "visible" : "hidden";
+          const stateLabel = bundle.visible ? "Visible" : "Hidden";
+          const stateGlyph = bundle.visible ? "Ⓥ" : "Ⓗ";
+          const safeBundleName = this.escapeHtml(bundle.name);
+          const overlayCount = bundle.bundle.overlays.length;
+          const trajectoryCount = bundle.bundle.manifest.counts.trajectoryCount;
+          const trajectoryLabel = isOdBundle ? "flow" : "trajectory";
+
+          return `
+            <article class="track-item is-${visualState}" data-bundle-id="${bundle.id}">
+              <div class="track-item-header">
+                <div class="track-item-header-main">
+                  <span class="track-color" style="background:${bundle.color}"></span>
+                  <span class="track-title" title="${safeBundleName}">${safeBundleName}</span>
+                </div>
+                <div class="track-item-header-controls">
+                  <button
+                    class="track-state-btn track-state-${visualState}"
+                    data-action="bundle-toggle-visible-mini"
+                    data-bundle-id="${bundle.id}"
+                    data-next-visible="${bundle.visible ? "false" : "true"}"
+                    type="button"
+                    title="${bundle.visible ? "Hide bundle" : "Show bundle"}"
+                    aria-label="Bundle state: ${stateLabel}. Click to ${bundle.visible ? "hide" : "show"} bundle."
+                    aria-pressed="${bundle.visible ? "true" : "false"}"
+                  >
+                    ${stateGlyph}
+                  </button>
+                </div>
+              </div>
+              <p class="bundle-meta">${trajectoryCount} ${trajectoryLabel}${trajectoryCount === 1 ? "" : "s"} · ${overlayCount} overlay${overlayCount === 1 ? "" : "s"}</p>
+              <div class="track-toggle-row bundle-toggle-row">
+                <button
+                  class="track-toggle-btn track-visibility-toggle ${bundle.visible ? "is-on" : "is-off"}"
+                  data-action="bundle-toggle-visible"
+                  data-bundle-id="${bundle.id}"
+                  data-next-visible="${bundle.visible ? "false" : "true"}"
+                  type="button"
+                  aria-pressed="${bundle.visible ? "true" : "false"}"
+                >
+                  ${bundle.visible ? "Visible" : "Hidden"}
+                </button>
+                <button
+                  class="track-toggle-btn ${bundle.overlaysVisible ? "is-active" : "is-inactive"}${bundle.visible ? "" : " is-muted"}"
+                  data-action="bundle-toggle-overlays"
+                  data-bundle-id="${bundle.id}"
+                  data-next-overlays="${bundle.overlaysVisible ? "false" : "true"}"
+                  type="button"
+                  aria-pressed="${bundle.overlaysVisible ? "true" : "false"}"
+                  ${overlayCount > 0 ? "" : "disabled"}
+                >
+                  Overlays
+                </button>
+                ${isOdBundle
+                  ? ""
+                  : `
+                <button
+                  class="track-toggle-btn ${bundle.extractionEnabled ? "is-active" : "is-inactive"}${bundle.visible ? "" : " is-muted"}"
+                  data-action="bundle-toggle-extraction"
+                  data-bundle-id="${bundle.id}"
+                  data-next-extraction="${bundle.extractionEnabled ? "false" : "true"}"
+                  type="button"
+                  aria-pressed="${bundle.extractionEnabled ? "true" : "false"}"
+                >
+                  Extract
+                </button>
+                `}
+              </div>
+              <div class="track-actions">
+                <button data-action="bundle-focus" data-bundle-id="${bundle.id}" type="button">Focus</button>
+                <button data-action="bundle-delete" data-bundle-id="${bundle.id}" type="button">Remove</button>
+              </div>
+            </article>
+          `;
+        })
+        .join("");
+    }
 
     if (state.tracks.length === 0) {
       this.trackList.innerHTML = '<p class="empty-message">No tracks loaded.</p>';
@@ -494,8 +625,8 @@ export class SidebarView {
       const action = target.dataset.action;
 
       if (target instanceof HTMLSelectElement) {
-        if (action === "velocity-colormap") {
-          this.callbacks.onVelocityColormapChange(target.value);
+        if (action === "analysis-colormap") {
+          this.callbacks.onAnalysisColormapChange(target.value);
         } else if (action === "map-style") {
           const style = target.value;
           if (MAP_STYLE_OPTIONS.some((option) => option.id === style)) {
@@ -511,18 +642,18 @@ export class SidebarView {
         return;
       }
 
-      if (action === "velocity-max") {
+      if (action === "analysis-velocity-max") {
         const nextMax = Number.parseFloat(target.value);
         if (Number.isFinite(nextMax)) {
-          this.callbacks.onVelocityFixedMaxChange(nextMax);
+          this.callbacks.onAnalysisVelocityFixedMaxChange(nextMax);
         }
         return;
       }
 
-      if (action === "velocity-max-slider") {
+      if (action === "analysis-velocity-max-slider") {
         const nextMax = Number.parseFloat(target.value);
         if (Number.isFinite(nextMax)) {
-          this.callbacks.onVelocityFixedMaxChange(nextMax);
+          this.callbacks.onAnalysisVelocityFixedMaxChange(nextMax);
         }
         return;
       }
@@ -586,32 +717,70 @@ export class SidebarView {
         return;
       }
 
-      if (action === "velocity-mode") {
+      if (action === "analysis-mode") {
         const mode = button.dataset.mode;
-        if (mode === "off" || mode === "velocity" || mode === "acceleration") {
-          this.callbacks.onVelocityModeChange(mode);
+        if (mode === "off" || mode === "velocity" || mode === "acceleration" || mode === "od") {
+          this.callbacks.onAnalysisModeChange(mode);
         }
         return;
       }
 
-      if (action === "velocity-mode-cycle") {
-        const currentMode = getVelocityHeaderMode(this.lastVelocitySettings);
-        const nextMode: VelocityHeaderMode =
+      if (action === "analysis-mode-cycle") {
+        const currentMode = getAnalysisHeaderMode(this.lastAnalysisSettings);
+        const nextMode: AnalysisHeaderMode =
           currentMode === "off"
             ? "velocity"
             : currentMode === "velocity"
               ? "acceleration"
-              : "off";
-        this.callbacks.onVelocityModeChange(nextMode);
+              : currentMode === "acceleration"
+                ? "od"
+                : "off";
+        this.callbacks.onAnalysisModeChange(nextMode);
         return;
       }
 
-      if (action === "velocity-scale") {
+      if (action === "analysis-velocity-scale") {
         const mode = button.dataset.scale;
         if (mode === "auto" || mode === "fixed") {
-          this.callbacks.onVelocityScaleModeChange(mode);
+          this.callbacks.onAnalysisVelocityScaleModeChange(mode);
         }
         return;
+      }
+
+      if (action === "analysis-od-metric") {
+        const metric = button.dataset.odMetric;
+        if (metric === "weight" || metric === "tripCount") {
+          this.callbacks.onAnalysisOdMetricChange(metric);
+        }
+        return;
+      }
+
+      const bundleId = button.dataset.bundleId;
+      if (bundleId) {
+        if (action === "bundle-toggle-visible" || action === "bundle-toggle-visible-mini") {
+          this.callbacks.onToggleBundleVisibility(bundleId, button.dataset.nextVisible === "true");
+          return;
+        }
+
+        if (action === "bundle-toggle-overlays") {
+          this.callbacks.onToggleBundleOverlays(bundleId, button.dataset.nextOverlays === "true");
+          return;
+        }
+
+        if (action === "bundle-toggle-extraction") {
+          this.callbacks.onToggleBundleExtraction(bundleId, button.dataset.nextExtraction === "true");
+          return;
+        }
+
+        if (action === "bundle-focus") {
+          this.callbacks.onFocusBundle(bundleId);
+          return;
+        }
+
+        if (action === "bundle-delete") {
+          this.callbacks.onDeleteBundle(bundleId);
+          return;
+        }
       }
 
       if (!trackId) {
@@ -684,8 +853,8 @@ export class SidebarView {
 
       const action = target.dataset.action;
       if (
-        action !== "velocity-max" &&
-        action !== "velocity-max-slider" &&
+        action !== "analysis-velocity-max" &&
+        action !== "analysis-velocity-max-slider" &&
         action !== "map-darken" &&
         action !== "map-desaturate"
       ) {
@@ -707,7 +876,7 @@ export class SidebarView {
         return;
       }
 
-      this.callbacks.onVelocityFixedMaxChange(nextValue);
+      this.callbacks.onAnalysisVelocityFixedMaxChange(nextValue);
     });
   }
 
@@ -735,14 +904,16 @@ export class SidebarView {
   }
 
   private rerenderFromCache(): void {
-    this.render(
-      this.lastState,
-      this.lastSummary,
-      this.lastEditMode,
-      this.lastVelocitySettings,
-      this.lastVelocityMaxDisplayValue,
-      this.lastMapViewSettings
-    );
+      this.render(
+        this.lastState,
+        this.lastBundleState,
+        this.lastSummary,
+        undefined,
+        this.lastEditMode,
+        this.lastAnalysisSettings,
+        this.lastVelocityMaxDisplayValue,
+        this.lastMapViewSettings
+      );
   }
 
   private buildSectionControls(sectionId: SidebarSectionId): string {
@@ -751,14 +922,14 @@ export class SidebarView {
         ? `
         <button
           class="section-header-icon-btn section-velocity-mode-btn"
-          data-action="velocity-mode-cycle"
+          data-action="analysis-mode-cycle"
           data-mode="off"
           type="button"
-          title="Toggle segment coloring mode"
-          aria-label="Segment coloring mode: Off. Click to cycle between Off, Velocity, and Acceleration."
+          title="Toggle analysis mode"
+          aria-label="Analysis mode: Off. Click to cycle between Off, Velocity, Acceleration, and OD."
           aria-pressed="false"
         >
-          ${getVelocityHeaderGlyph("off")}
+          ${getAnalysisHeaderGlyph("off")}
         </button>
       `
         : "";
@@ -1047,12 +1218,14 @@ export class SidebarView {
     }
   }
 
-  private syncVelocityControls(
-    velocitySettings: VelocityViewSettings,
+  private syncAnalysisControls(
+    analysisSettings: AnalysisSettings,
     velocityMaxDisplayValue: number
   ): void {
-    const mode = getVelocityHeaderMode(velocitySettings);
-    const modeButtons = this.root.querySelectorAll<HTMLButtonElement>('button[data-action="velocity-mode"]');
+    const mode = getAnalysisHeaderMode(analysisSettings);
+    const velocityEnabled = mode === "velocity" || mode === "acceleration";
+    const odEnabled = mode === "od";
+    const modeButtons = this.root.querySelectorAll<HTMLButtonElement>('button[data-action="analysis-mode"]');
     modeButtons.forEach((button) => {
       const isActive = button.dataset.mode === mode;
       button.classList.toggle("is-active", isActive);
@@ -1060,47 +1233,78 @@ export class SidebarView {
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
     });
 
-    const headerModeButton = this.root.querySelector<HTMLButtonElement>('button[data-action="velocity-mode-cycle"]');
+    const headerModeButton = this.root.querySelector<HTMLButtonElement>('button[data-action="analysis-mode-cycle"]');
     if (headerModeButton) {
       headerModeButton.dataset.mode = mode;
-      headerModeButton.textContent = getVelocityHeaderGlyph(mode);
+      headerModeButton.textContent = getAnalysisHeaderGlyph(mode);
       headerModeButton.classList.toggle("is-off", mode === "off");
       headerModeButton.classList.toggle("is-velocity", mode === "velocity");
       headerModeButton.classList.toggle("is-acceleration", mode === "acceleration");
+      headerModeButton.classList.toggle("is-od", mode === "od");
       headerModeButton.setAttribute("aria-pressed", mode === "off" ? "false" : "true");
-      headerModeButton.title = `Segment coloring mode: ${getVelocityHeaderLabel(mode)} (click to cycle)`;
+      headerModeButton.title = `Analysis mode: ${getAnalysisHeaderLabel(mode)} (click to cycle)`;
       headerModeButton.setAttribute(
         "aria-label",
-        `Segment coloring mode: ${getVelocityHeaderLabel(mode)}. Click to cycle between Off, Velocity, and Acceleration.`
+        `Analysis mode: ${getAnalysisHeaderLabel(mode)}. Click to cycle between Off, Velocity, Acceleration, and OD.`
       );
     }
 
-    const scaleButtons = this.root.querySelectorAll<HTMLButtonElement>('button[data-action="velocity-scale"]');
+    const scaleButtons = this.root.querySelectorAll<HTMLButtonElement>(
+      'button[data-action="analysis-velocity-scale"]'
+    );
     scaleButtons.forEach((button) => {
-      const isActive = button.dataset.scale === velocitySettings.scaleMode;
+      const isActive = button.dataset.scale === analysisSettings.velocityScaleMode;
       button.classList.toggle("is-active", isActive);
       button.classList.toggle("is-inactive", !isActive);
       button.setAttribute("aria-pressed", isActive ? "true" : "false");
-      button.disabled = !velocitySettings.enabled;
+      button.disabled = !velocityEnabled;
     });
 
-    const unitLabel = velocitySettings.metric === "acceleration" ? "m/s²" : "km/h";
-    const inputStep = velocitySettings.metric === "acceleration" ? "0.1" : "1";
-    const maxLabel = this.root.querySelector<HTMLElement>("#velocity-max-label");
+    const odMetricButtons = this.root.querySelectorAll<HTMLButtonElement>(
+      'button[data-action="analysis-od-metric"]'
+    );
+    odMetricButtons.forEach((button) => {
+      const isActive = button.dataset.odMetric === analysisSettings.odMetric;
+      button.classList.toggle("is-active", isActive);
+      button.classList.toggle("is-inactive", !isActive);
+      button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      button.disabled = !odEnabled;
+    });
+
+    const unitLabel = mode === "acceleration" ? "m/s²" : "km/h";
+    const inputStep = mode === "acceleration" ? "0.1" : "1";
+    const maxLabel = this.root.querySelector<HTMLElement>("#analysis-velocity-max-label");
     if (maxLabel) {
       maxLabel.textContent = `Max (${unitLabel})`;
     }
 
-    const maxInput = this.root.querySelector<HTMLInputElement>('input[data-action="velocity-max"]');
-    const maxSlider = this.root.querySelector<HTMLInputElement>('input[data-action="velocity-max-slider"]');
-    const roundedMax = Number.isFinite(velocitySettings.fixedMax)
+    const velocityScaleField = this.root.querySelector<HTMLElement>("#analysis-velocity-scale-field");
+    if (velocityScaleField) {
+      velocityScaleField.hidden = !velocityEnabled;
+    }
+
+    const velocityMaxField = this.root.querySelector<HTMLElement>("#analysis-velocity-max-field");
+    if (velocityMaxField) {
+      velocityMaxField.hidden = !velocityEnabled;
+    }
+
+    const odMetricField = this.root.querySelector<HTMLElement>("#analysis-od-metric-field");
+    if (odMetricField) {
+      odMetricField.hidden = !odEnabled;
+    }
+
+    const maxInput = this.root.querySelector<HTMLInputElement>('input[data-action="analysis-velocity-max"]');
+    const maxSlider = this.root.querySelector<HTMLInputElement>(
+      'input[data-action="analysis-velocity-max-slider"]'
+    );
+    const roundedMax = Number.isFinite(analysisSettings.velocityFixedMax)
       ? Math.max(
         0,
         Math.min(
           350,
-          velocitySettings.metric === "acceleration"
-            ? Math.round(velocitySettings.fixedMax * 10) / 10
-            : Math.round(velocitySettings.fixedMax)
+          mode === "acceleration"
+            ? Math.round(analysisSettings.velocityFixedMax * 10) / 10
+            : Math.round(analysisSettings.velocityFixedMax)
         )
       )
       : 0;
@@ -1108,52 +1312,66 @@ export class SidebarView {
     if (maxInput) {
       maxInput.value = String(roundedMax);
       maxInput.step = inputStep;
-      maxInput.disabled = !velocitySettings.enabled || velocitySettings.scaleMode !== "fixed";
+      maxInput.disabled = !velocityEnabled || analysisSettings.velocityScaleMode !== "fixed";
     }
     if (maxSlider) {
       maxSlider.value = String(roundedMax);
       maxSlider.step = inputStep;
-      maxSlider.disabled = !velocitySettings.enabled || velocitySettings.scaleMode !== "fixed";
+      maxSlider.disabled = !velocityEnabled || analysisSettings.velocityScaleMode !== "fixed";
     }
 
-    const colormapSelect = this.root.querySelector<HTMLSelectElement>('select[data-action="velocity-colormap"]');
+    const colormapSelect = this.root.querySelector<HTMLSelectElement>('select[data-action="analysis-colormap"]');
     if (colormapSelect) {
       const optionExists = Array.from(colormapSelect.options).some(
-        (option) => option.value === velocitySettings.colormapId
+        (option) => option.value === analysisSettings.colormapId
       );
       colormapSelect.value = optionExists
-        ? velocitySettings.colormapId
+        ? analysisSettings.colormapId
         : colormapSelect.options[0]?.value ?? "";
-      colormapSelect.disabled = !velocitySettings.enabled;
+      colormapSelect.disabled = mode === "off";
     }
 
-    const velocityMeta = this.root.querySelector<HTMLElement>("#velocity-meta");
-    if (!velocityMeta) {
+    const analysisMeta = this.root.querySelector<HTMLElement>("#analysis-meta");
+    if (!analysisMeta) {
       return;
     }
 
-    if (!velocitySettings.enabled) {
-      velocityMeta.textContent = "Segment coloring is off.";
+    if (mode === "off") {
+      analysisMeta.textContent = "Analysis is off.";
+      return;
+    }
+
+    if (odEnabled) {
+      analysisMeta.textContent =
+        analysisSettings.odMetric === "tripCount"
+          ? "Color and ranking use visible OD trip counts."
+          : "Color and ranking use visible OD weights.";
       return;
     }
 
     const roundedAutoMax = Number.isFinite(velocityMaxDisplayValue)
       ? Math.round(velocityMaxDisplayValue * 10) / 10
       : 0;
-    const metricLabel = velocitySettings.metric === "acceleration" ? "acceleration" : "velocity";
-    velocityMeta.textContent =
-      velocitySettings.scaleMode === "fixed"
+    const metricLabel = mode === "acceleration" ? "acceleration" : "velocity";
+    analysisMeta.textContent =
+      analysisSettings.velocityScaleMode === "fixed"
         ? `Fixed ${metricLabel} max: ${roundedMax} ${unitLabel}.`
         : `Max ${metricLabel}: ${roundedAutoMax} ${unitLabel} across visible tracks.`;
   }
 
   private buildSummaryMessage(summary: ImportSummary): string {
-    const importCountLabel = `${summary.importedTrackCount} track${summary.importedTrackCount === 1 ? "" : "s"
-      }`;
+    const parts: string[] = [];
+    if (summary.importedTrackCount > 0) {
+      parts.push(`${summary.importedTrackCount} track${summary.importedTrackCount === 1 ? "" : "s"}`);
+    }
+    if (summary.importedBundleCount > 0) {
+      parts.push(`${summary.importedBundleCount} bundle${summary.importedBundleCount === 1 ? "" : "s"}`);
+    }
+
     const successMessage =
-      summary.importedTrackCount > 0
-        ? `Last import added ${importCountLabel}.`
-        : "Last import added no tracks.";
+      parts.length > 0
+        ? `Last import added ${parts.join(" and ")}.`
+        : "Last import added no tracks or bundles.";
 
     if (summary.issues.length === 0) {
       return successMessage;
