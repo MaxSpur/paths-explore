@@ -2,6 +2,8 @@
   "name": "path-segments",
   "private": true,
   "version": "0.1.0",
+  "description": "Map-first track viewer and editor for GPX/KML/GeoJSON/CSV files and preprocessed trajectory bundles.",
+  "license": "Apache-2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
