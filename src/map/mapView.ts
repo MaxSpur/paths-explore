@@ -144,6 +144,7 @@ const MIN_LEGEND_WIDTH_PX = 248;
 const MIN_LEGEND_HEIGHT_HISTOGRAM_PX = 238;
 const HISTOGRAM_MIN_HEIGHT_REM = 3.35;
 const HISTOGRAM_LOG_X_STRETCH = 45;
+const MAP_BRIGHTNESS_NEUTRAL_DEADZONE_PERCENT = 8;
 const DEFAULT_MAP_VIEW_SETTINGS: MapViewSettings = {
   baseStyle: "osm-standard",
   darkenPercent: 0,
@@ -200,6 +201,15 @@ const BASEMAP_STYLES: Record<MapBaseStyle, BasemapStyleDefinition> = {
     subdomains: "abcd"
   }
 };
+
+function clampBrightnessPercent(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  const clamped = Math.max(-100, Math.min(100, value));
+  return Math.abs(clamped) <= MAP_BRIGHTNESS_NEUTRAL_DEADZONE_PERCENT ? 0 : clamped;
+}
 
 function clampPercent(value: number): number {
   if (!Number.isFinite(value)) {
@@ -355,7 +365,7 @@ export class MapView {
   setMapViewSettings(settings: MapViewSettings): void {
     const normalized: MapViewSettings = {
       baseStyle: settings.baseStyle in BASEMAP_STYLES ? settings.baseStyle : DEFAULT_MAP_VIEW_SETTINGS.baseStyle,
-      darkenPercent: clampPercent(settings.darkenPercent),
+      darkenPercent: clampBrightnessPercent(settings.darkenPercent),
       desaturatePercent: clampPercent(settings.desaturatePercent)
     };
 

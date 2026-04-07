@@ -107,8 +107,108 @@ describe("sidebar analysis integration", () => {
 
     const mapStyleSelect = document.querySelector<HTMLSelectElement>('select[data-action="map-style"]');
     expect(mapStyleSelect?.value).toBe("carto-light");
-    expect(document.querySelector<HTMLElement>("#map-darken-value")?.textContent).toBe("18%");
+    expect(document.querySelector<HTMLElement>("#map-darken-value")?.textContent).toBe("Darken 18%");
     expect(document.querySelector<HTMLElement>("#map-desaturate-value")?.textContent).toBe("22%");
+  });
+
+  it("shows lighten, darken, and neutral labels for the signed brightness slider", () => {
+    const { sidebar, root } = createSidebar();
+    const state: AppState = { tracks: [], selectedPointIds: [] };
+    const bundleState: BundleState = { bundles: [] };
+
+    sidebar.render(
+      state,
+      bundleState,
+      undefined,
+      undefined,
+      "move",
+      {
+        mode: "off",
+        colormapId: DEFAULT_COLORMAP_ID,
+        velocityScaleMode: "auto",
+        velocityFixedMax: 60,
+        odColorMetricKey: "weight",
+        odDrawOrderMetricKey: "weight",
+        odLinkMetricSelections: false,
+        odLinkVariantValueSelections: false
+      },
+      0,
+      {
+        baseStyle: "osm-standard",
+        darkenPercent: -24,
+        desaturatePercent: 0
+      }
+    );
+
+    const darkenInput = root.querySelector<HTMLInputElement>('input[data-action="map-darken"]');
+    expect(darkenInput?.value).toBe("-24");
+    expect(root.querySelector<HTMLElement>("#map-darken-value")?.textContent).toBe("Lighten 24%");
+
+    sidebar.render(
+      state,
+      bundleState,
+      undefined,
+      undefined,
+      "move",
+      {
+        mode: "off",
+        colormapId: DEFAULT_COLORMAP_ID,
+        velocityScaleMode: "auto",
+        velocityFixedMax: 60,
+        odColorMetricKey: "weight",
+        odDrawOrderMetricKey: "weight",
+        odLinkMetricSelections: false,
+        odLinkVariantValueSelections: false
+      },
+      0,
+      {
+        baseStyle: "osm-standard",
+        darkenPercent: 0,
+        desaturatePercent: 0
+      }
+    );
+
+    expect(root.querySelector<HTMLElement>("#map-darken-value")?.textContent).toBe("Neutral");
+  });
+
+  it("snaps small brightness slider adjustments back to neutral", () => {
+    const { sidebar, root, callbacks } = createSidebar();
+    const state: AppState = { tracks: [], selectedPointIds: [] };
+    const bundleState: BundleState = { bundles: [] };
+
+    sidebar.render(
+      state,
+      bundleState,
+      undefined,
+      undefined,
+      "move",
+      {
+        mode: "off",
+        colormapId: DEFAULT_COLORMAP_ID,
+        velocityScaleMode: "auto",
+        velocityFixedMax: 60,
+        odColorMetricKey: "weight",
+        odDrawOrderMetricKey: "weight",
+        odLinkMetricSelections: false,
+        odLinkVariantValueSelections: false
+      },
+      0,
+      {
+        baseStyle: "osm-standard",
+        darkenPercent: 0,
+        desaturatePercent: 0
+      }
+    );
+
+    const darkenInput = root.querySelector<HTMLInputElement>('input[data-action="map-darken"]');
+    expect(darkenInput).not.toBeNull();
+
+    darkenInput!.value = "6";
+    darkenInput!.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(callbacks.onMapDarkenChange).toHaveBeenCalledWith(0);
+    expect(darkenInput!.value).toBe("0");
+    expect(root.querySelector<HTMLElement>("#map-darken-value")?.textContent).toBe("Neutral");
   });
 
   it("links OD draw-order changes to color metric when metric linking is enabled", () => {

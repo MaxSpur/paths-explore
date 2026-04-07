@@ -42,6 +42,7 @@ const LEGACY_VELOCITY_SETTINGS_STORAGE_KEY = "path-segments-velocity-settings-v1
 const MAP_VIEW_SETTINGS_STORAGE_KEY = "path-segments-map-view-settings-v1";
 const VELOCITY_MAX_LIMIT = 350;
 const MAP_FILTER_PERCENT_LIMIT = 100;
+const MAP_BRIGHTNESS_NEUTRAL_DEADZONE_PERCENT = 8;
 const UNDO_PAN_NAVIGATION_APPLY_DELAY_MS = 150;
 const UNDO_TELEPORT_NAVIGATION_APPLY_DELAY_MS = 300;
 const PEAK_DELETE_REFOCUS_DELAY_MS = 200;
@@ -72,6 +73,11 @@ const MAP_BASE_STYLES = new Set<MapBaseStyle>([
 
 function clampVelocityFixedMax(value: number): number {
   return Math.max(0, Math.min(VELOCITY_MAX_LIMIT, value));
+}
+
+function clampMapBrightnessPercent(value: number): number {
+  const clamped = Math.max(-MAP_FILTER_PERCENT_LIMIT, Math.min(MAP_FILTER_PERCENT_LIMIT, value));
+  return Math.abs(clamped) <= MAP_BRIGHTNESS_NEUTRAL_DEADZONE_PERCENT ? 0 : clamped;
 }
 
 function clampMapFilterPercent(value: number): number {
@@ -196,7 +202,7 @@ function normalizeMapViewSettings(
   return {
     baseStyle,
     darkenPercent: Number.isFinite(rawDarken)
-      ? clampMapFilterPercent(rawDarken)
+      ? clampMapBrightnessPercent(rawDarken)
       : DEFAULT_MAP_VIEW_SETTINGS.darkenPercent,
     desaturatePercent: Number.isFinite(rawDesaturate)
       ? clampMapFilterPercent(rawDesaturate)
@@ -886,7 +892,7 @@ export function createApp(root: HTMLElement): void {
 
       setMapViewSettings({
         ...mapViewSettings,
-        darkenPercent: clampMapFilterPercent(darkenPercent)
+        darkenPercent: clampMapBrightnessPercent(darkenPercent)
       });
       render();
     },

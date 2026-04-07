@@ -1,11 +1,10 @@
 # Path Segments
 
-Path Segments is a map-first tool for inspecting, editing, and comparing movement tracks in the browser.
+Path Segments is a map-first browser tool for inspecting, comparing, recoloring, and editing movement tracks.
 
-It is built for two related workflows:
+Its main job is individual track work: load GPX/KML/GeoJSON/CSV traces, study them on a map, color them by velocity or acceleration, jump to peaks, and correct the geometry point by point.
 
-- everyday track work with GPX, KML, GeoJSON, and CSV files
-- large preprocessed bundle work, where many trajectories or OD flows need to be rendered quickly without turning the app into a full GIS stack
+It also has a secondary bundle workflow for preprocessed large datasets and OD graphs, but that part is still more experimental.
 
 Live app: [maximspur.com/paths-explore](https://www.maximspur.com/paths-explore)
 
@@ -13,10 +12,14 @@ Live app: [maximspur.com/paths-explore](https://www.maximspur.com/paths-explore)
 
 - Import `.gpx`, `.kml`, `.geojson`, `.json`, `.csv`, `.zip`, and generated `.psbundle.zip` bundles
 - Show multiple tracks at once with deterministic colors and explicit draw order
+- Switch between several background maps and tune them with a neutral-centered `Lighten / Darken` slider and `Desaturate`
+- Color tracks by `Velocity` or `Acceleration` with perceptual colormaps
+- Inspect ranked extremes with `Top Peak` and `Next Peak`
+- Inspect segment values, coordinates, timing, and distances in `Info` mode
 - Edit one track at a time with `Move`, `Marquee`, `Lasso`, and `Info` modes
 - Undo and redo point edits, deletions, visibility changes, and track reordering
 - Export edited tracks back out as GPX, KML, or GeoJSON-family output
-- Analyze tracks by `Velocity` or `Acceleration` with interactive color scales and ranked peak navigation
+- Persist normal editable tracks locally in the browser across reloads
 - Analyze preprocessed OD bundles with interactive colormaps, ranking, histograms, and explicit extraction of selected flows into normal editable tracks
 
 ## Quick start
@@ -36,9 +39,9 @@ Notes:
 
 ## How to use it
 
-### 1. Load tracks
+### 1. Load one or more tracks
 
-You can drag files anywhere onto the page or use the import control in the sidebar.
+Drag files anywhere onto the page or use the file picker in the `Import` section.
 
 Supported direct inputs:
 
@@ -46,30 +49,88 @@ Supported direct inputs:
 - KML
 - GeoJSON / JSON
 - CSV
-- ZIP archives containing those file types
+- ZIP archives containing the file types above
 
-Once loaded, each track gets its own card with:
+Imported editable tracks are restored from IndexedDB on the next reload, so your current working set comes back automatically unless you delete tracks yourself.
 
-- `Visible`
-- `Lines`
-- `Points`
-- `Edit`
-- `Focus`
-- `Export`
-- `Delete`
+### 2. Organize what you see
 
-Tracks can be reordered in the sidebar, and that order controls which tracks render on top.
+Each loaded track gets a sidebar card with the main controls:
 
-### 2. Edit geometry
+- `Visible`: hide or show the whole track
+- `Lines`: show or hide the polyline itself
+- `Points`: show or hide point markers
+- `Edit`: enter or leave editing for that track
+- `Focus`: zoom the map to that track
+- `Export`: write the current version back out
+- `Delete`: remove it from the session
 
-Only one track is editable at a time.
+Useful details:
 
-Available edit modes:
+- Reordering track cards changes draw order. Tracks nearer the top render on top of lower ones.
+- `Lines` and `Points` let you reduce clutter when comparing several traces. The app keeps at least one of them active so a visible track does not become impossible to locate.
+- When a track is being edited, points are shown automatically even if `Points` was off before.
 
-- `Move`: drag selected points
-- `Marquee`: drag a box to select points
-- `Lasso`: freehand point selection
-- `Info`: inspect segment values and point details
+The `Map` section controls the basemap itself. Current background styles are:
+
+- `OSM Standard`
+- `CARTO Light`
+- `CARTO Positron`
+- `CARTO Positron (No Labels)`
+- `CARTO Dark`
+- `CARTO Voyager`
+
+Use `Lighten / Darken` and `Desaturate` to push the basemap further into the background, or brighten it when a darker background style needs a little more separation. The midpoint of the brightness slider is neutral.
+
+### 3. Analyze a track visually
+
+For normal path work, the important `Analysis` modes are:
+
+- `Off`
+- `Velocity`
+- `Acceleration`
+
+`Velocity` and `Acceleration` color track segments directly on the map. Typical workflow:
+
+1. Choose `Velocity` or `Acceleration` in the `Analysis` section.
+2. Pick a perceptual colormap from the dropdown.
+3. Choose `Auto` scale to adapt to the currently visible tracks, or `Fixed` scale when you want stable comparisons across several views or sessions.
+
+The bottom-right analysis panel is the main visual aid for these modes:
+
+- The colored bar shows the current colormap and value range.
+- Clicking the colored bar cycles to the next colormap quickly.
+- The histogram shows how segment values are distributed across the current visible analysis set.
+- Clicking the histogram cycles between `standard`, `precision`, and `hidden`.
+- `L/L`, `L/G`, `G/L`, and `G/G` switch the histogram axes between linear and logarithmic scaling.
+- `Top Peak` jumps to the strongest currently ranked segment.
+- `Next Peak` walks down the ranked list of segments one by one.
+- When the histogram is visible, you can drag the panel's top-left corner to resize it.
+
+Peak navigation is especially useful while cleaning a track. If one track is currently in edit mode, the ranking controls operate on that track so you can step through suspicious spikes and correct them directly.
+
+### 4. Inspect specific segments and points
+
+Turn on `Edit` for one track to work on it directly. Only one track is editable at a time.
+
+Edit modes:
+
+- `Move`: drag selected points to new locations
+- `Marquee`: drag a rectangle to select points
+- `Lasso`: draw a freehand region to select points
+- `Info`: click colored segments to inspect them without moving geometry
+
+`Info` mode is often the fastest way to understand a suspicious segment. The popup can show:
+
+- the current velocity or acceleration value
+- segment index range
+- distance and duration, when timing exists
+- both endpoint coordinates
+- endpoint timestamps, when available
+
+### 5. Edit geometry
+
+Once points are selected, you can reshape the track directly on the map.
 
 Useful shortcuts:
 
@@ -80,32 +141,26 @@ Useful shortcuts:
 - `Cmd+Z` / `Ctrl+Z`: undo
 - `Shift+Cmd+Z`, `Ctrl+Shift+Z`, or `Ctrl+Y`: redo
 
-### 3. Use analysis modes
+Undo and redo cover point moves, deletions, visibility changes, points/lines toggles, and track reordering.
 
-The `Analysis` section supports four modes:
+### 6. Export or keep working later
 
-- `Off`
-- `Velocity`
-- `Acceleration`
-- `OD`
+Use `Export` on a track card to write the current geometry back out. The app exports in the same general format family used elsewhere in the toolchain: GPX, KML, or GeoJSON-style output depending on the track.
 
-For track-based modes:
+If you are just pausing work, you usually do not need to export immediately. Normal tracks persist in the browser and reload automatically on the next visit.
 
-- choose a colormap
-- use `Auto` or `Fixed` scale
-- inspect ranked peaks with `Top Peak` and `Next Peak`
+### 7. Experimental: bundles and OD mode
 
-For OD mode:
+`OD` mode and `.psbundle.zip` imports are available, but they are still secondary to the normal track workflow above.
 
-- choose `Color / Rank by`
-- choose `Draw on top by`
-- optionally use `Link Metrics` and `Link Variant/Value` to keep the two selector stacks synchronized
-- inspect ranked flows with `Top Flow` and `Next Flow`
-- extract the selected OD edge into the normal editable track workflow with `Extract Selected`
+Use them when you already have preprocessed high-volume data and want lightweight rendering, not when you simply want to inspect and edit one or a few tracks. Bundle behavior is intentionally different:
 
-The bottom-right analysis panel is shared across modes and includes the current color scale, histogram, and ranking controls.
+- bundles render in a separate lightweight layer
+- bundles are not persisted in IndexedDB
+- bundles do not enter undo/redo history
+- OD bundles are selected first and only extracted into a normal editable track when you explicitly ask for it
 
-## Parquet and bundle workflow
+## Experimental parquet and bundle workflow
 
 Raw parquet is not loaded directly in the browser.
 
@@ -153,11 +208,11 @@ python3 scripts/parquet_to_bundle.py \
 
 Other useful starting points:
 
-- [configs/trajectory-points.bundle.example.json](/Users/MadMax/Developer/Websites/Path-Segments/configs/trajectory-points.bundle.example.json)
-- [configs/weighted-od.bundle.example.json](/Users/MadMax/Developer/Websites/Path-Segments/configs/weighted-od.bundle.example.json)
-- [configs/emg-centroids.bundle.json](/Users/MadMax/Developer/Websites/Path-Segments/configs/emg-centroids.bundle.json)
-- [configs/emg-overlay.bundle.json](/Users/MadMax/Developer/Websites/Path-Segments/configs/emg-overlay.bundle.json)
-- [configs/emg-weighted-od.bundle.json](/Users/MadMax/Developer/Websites/Path-Segments/configs/emg-weighted-od.bundle.json)
+- [configs/trajectory-points.bundle.example.json](configs/trajectory-points.bundle.example.json)
+- [configs/weighted-od.bundle.example.json](configs/weighted-od.bundle.example.json)
+- [configs/emg-centroids.bundle.json](configs/emg-centroids.bundle.json)
+- [configs/emg-overlay.bundle.json](configs/emg-overlay.bundle.json)
+- [configs/emg-weighted-od.bundle.json](configs/emg-weighted-od.bundle.json)
 
 ### Import the bundle
 
@@ -227,7 +282,7 @@ Repository expectations:
 
 ## License
 
-This project is licensed under [Apache-2.0](/Users/MadMax/Developer/Websites/Path-Segments/LICENSE).
+This project is licensed under [Apache-2.0](LICENSE).
 
 ## Local-only working files
 

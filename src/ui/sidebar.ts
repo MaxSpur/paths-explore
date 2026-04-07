@@ -31,6 +31,25 @@ const MAP_STYLE_OPTIONS: Array<{ id: MapBaseStyle; label: string }> = [
   { id: "carto-dark", label: "CARTO Dark" },
   { id: "carto-voyager", label: "CARTO Voyager" }
 ];
+const MAP_BRIGHTNESS_NEUTRAL_DEADZONE_PERCENT = 8;
+
+function formatMapBrightnessLabel(value: number): string {
+  const rounded = Math.max(-100, Math.min(100, Math.round(value)));
+  if (rounded === 0) {
+    return "Neutral";
+  }
+
+  return rounded > 0 ? `Darken ${rounded}%` : `Lighten ${Math.abs(rounded)}%`;
+}
+
+function normalizeMapBrightnessSliderValue(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  const rounded = Math.max(-100, Math.min(100, Math.round(value)));
+  return Math.abs(rounded) <= MAP_BRIGHTNESS_NEUTRAL_DEADZONE_PERCENT ? 0 : rounded;
+}
 
 interface SidebarLayoutPrefs {
   order: SidebarSectionId[];
@@ -245,10 +264,10 @@ export class SidebarView {
             </select>
           </label>
           <label class="map-field">
-            <span>Darken</span>
+            <span>Lighten / Darken</span>
             <div class="map-filter-row">
-              <input data-action="map-darken" type="range" min="0" max="100" step="1" value="0" />
-              <span class="map-filter-value" id="map-darken-value">0%</span>
+              <input data-action="map-darken" type="range" min="-100" max="100" step="1" value="0" />
+              <span class="map-filter-value" id="map-darken-value">Neutral</span>
             </div>
           </label>
           <label class="map-field">
@@ -726,7 +745,9 @@ export class SidebarView {
       if (action === "map-darken") {
         const nextValue = Number.parseFloat(target.value);
         if (Number.isFinite(nextValue)) {
-          this.callbacks.onMapDarkenChange(nextValue);
+          const normalizedValue = normalizeMapBrightnessSliderValue(nextValue);
+          target.value = String(normalizedValue);
+          this.callbacks.onMapDarkenChange(normalizedValue);
         }
         return;
       }
@@ -948,7 +969,9 @@ export class SidebarView {
       }
 
       if (action === "map-darken") {
-        this.callbacks.onMapDarkenChange(nextValue);
+        const normalizedValue = normalizeMapBrightnessSliderValue(nextValue);
+        target.value = String(normalizedValue);
+        this.callbacks.onMapDarkenChange(normalizedValue);
         return;
       }
 
@@ -1514,7 +1537,7 @@ export class SidebarView {
     }
 
     const darken = Number.isFinite(mapViewSettings.darkenPercent)
-      ? Math.max(0, Math.min(100, Math.round(mapViewSettings.darkenPercent)))
+      ? normalizeMapBrightnessSliderValue(mapViewSettings.darkenPercent)
       : 0;
     const desaturate = Number.isFinite(mapViewSettings.desaturatePercent)
       ? Math.max(0, Math.min(100, Math.round(mapViewSettings.desaturatePercent)))
@@ -1532,7 +1555,7 @@ export class SidebarView {
 
     const darkenValue = this.root.querySelector<HTMLElement>("#map-darken-value");
     if (darkenValue) {
-      darkenValue.textContent = `${darken}%`;
+      darkenValue.textContent = formatMapBrightnessLabel(darken);
     }
 
     const desaturateValue = this.root.querySelector<HTMLElement>("#map-desaturate-value");

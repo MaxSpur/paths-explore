@@ -337,8 +337,11 @@ input {
 }
 
 .map-filter-value {
-  min-width: 2.65rem;
+  width: 7.6rem;
+  flex: 0 0 7.6rem;
   text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
   font-size: 0.8rem;
   color: #3e5950;
 }
