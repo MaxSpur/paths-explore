@@ -8,6 +8,13 @@ It also has a secondary bundle workflow for preprocessed large datasets and OD g
 
 Live app: [maximspur.com/paths-explore](https://www.maximspur.com/paths-explore)
 
+## Demo
+
+> Placeholder: add a short demo GIF here later, ideally showing the main workflow:
+> import a GPX track, switch to `Velocity` or `Acceleration`, jump through `Top Peak` / `Next Peak`, and edit a few points on the map.
+>
+> Suggested asset path when ready: `docs/path-segments-demo.gif`
+
 ## What it can do
 
 - Import `.gpx`, `.kml`, `.geojson`, `.json`, `.csv`, `.zip`, and generated `.psbundle.zip` bundles
